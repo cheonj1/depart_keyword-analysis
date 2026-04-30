@@ -1,0 +1,1287 @@
+/* =========================
+   Paged Media (1920 x 1080)
+   ========================= */
+@page {
+  size: 1920pt 1080pt;
+  margin: 0;
+
+  /* 지원되는 엔진에서만 표시됨 */
+  @bottom-right {
+    content: "Page " counter(page) " / " counter(pages);
+    font-size: 9pt;
+    color: #666;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+:root {
+  --theme-color: #ffffff;
+  --theme-title-color: #111111;
+  --cover-text-color: #111111;
+}
+
+body {
+  margin: 0;
+  font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", "Arial Unicode MS", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  color: #111;
+  background: #fff;
+}
+
+/* =========================
+   Page Layout
+   - 페이지는 3영역: header / title / body
+   - body 내부는 12컬럼 그리드
+   ========================= */
+.page {
+  width: 100%;
+  min-height: 1080pt;
+
+  break-after: auto;
+  page-break-after: auto;
+
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  column-gap: 8mm;
+  row-gap: 6mm;
+
+  /* header/title/body 영역 */
+  grid-template-areas:
+    "header header header header header header header header header header header header"
+    "title  title  title  title  title  title  title  title  title  title  title  title"
+    "body   body   body   body   body   body   body   body   body   body   body   body";
+  grid-template-rows: auto auto minmax(0, 1fr);
+
+  /* ✅ page-note 같은 absolute 요소의 기준 */
+  position: relative;
+
+  /* 하단에 노트 들어갈 여유를 확보 */
+  padding: 12mm 14mm 24mm 14mm;
+}
+
+.page + .page {
+  break-before: page;
+  page-break-before: always;
+}
+
+/* Heatmap pages: keep header/title fixed and center content in body area */
+.page--target-heatmap {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+/* =========================
+   Header
+   ========================= */
+.page-header {
+  grid-area: header;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 0 8mm;
+}
+
+.page-header__right {
+  position: relative;
+  top: 8mm;
+}
+
+.page-header__section {
+  font-size: 19.8pt;
+  font-weight: 800;
+  color: var(--theme-header-color);
+  letter-spacing: -0.2px;
+  position: relative;
+  top: 8mm;
+}
+
+.page-header__brand {
+  font-size: 14pt;
+  color: #888;
+  white-space: nowrap;
+}
+
+/* =========================
+   Title
+   ========================= */
+.title-block {
+  grid-area: title;
+  margin: 8mm 8mm 0;
+}
+
+.title-block__title {
+  margin: 0;
+  font-size: 56pt;
+  line-height: 1.08;
+  letter-spacing: -0.8px;
+  word-break: keep-all;
+  color: var(--theme-title-color, #111);
+}
+
+.title-block__subtitle {
+  margin-top: 4mm;
+  font-size: 18.5pt;
+  color: #444;
+}
+
+.title-target-highlight {
+  display: inline-block;
+  line-height: 0.94;
+  padding: 0.01em 0.11em 0;
+  border-radius: 0.06em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.title-target-highlight--overall {
+  background-color: rgba(255, 240, 140, 0.72);
+}
+
+.title-target-highlight--main {
+  background-color: color-mix(in srgb, var(--highlight-main-color) 85%, transparent);
+}
+
+.title-target-highlight--avoid {
+  background-color: color-mix(in srgb, var(--highlight-avoid-color) 85%, transparent);
+}
+
+/* =========================
+   Body grid (12 columns)
+   ========================= */
+.page-body {
+  grid-area: body;
+
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  column-gap: 8mm;
+  row-gap: 6mm;
+  min-height: 100%;
+  align-content: center;
+
+  /* 프린트 엔진에서 재배치 최소화 */
+  grid-auto-flow: row;
+  grid-auto-rows: min-content;
+}
+
+.page--overview .page-body {
+  min-height: 100%;
+}
+
+.page-body--overview {
+  align-content: center;
+  grid-template-rows: auto auto;
+  row-gap: 6.4mm;
+  transform: translateY(-6mm);
+}
+
+.overview-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  column-gap: 4.4mm;
+  align-self: center;
+  margin: 4mm auto 0 auto;
+  max-width: 1320pt;
+  width: 100%;
+}
+
+.overview-kpi {
+  text-align: center;
+}
+
+.overview-kpi__value {
+  font-size: 72pt;
+  line-height: 1;
+  letter-spacing: -1.1px;
+  font-weight: 900;
+  color: #202947;
+}
+
+.overview-kpi__label {
+  margin-top: 1.8mm;
+  font-size: 26pt;
+  font-weight: 900;
+  color: #202947;
+}
+
+.overview-periods {
+  max-width: 1040pt;
+  width: 100%;
+  margin: 32mm auto 3mm auto;
+  display: grid;
+  row-gap: 3.8mm;
+  justify-items: center;
+}
+
+.overview-period {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  align-items: center;
+  justify-content: center;
+  column-gap: 14mm;
+}
+
+.overview-period__label {
+  text-align: center;
+  font-size: 27pt;
+  font-weight: 900;
+  color: #202947;
+}
+
+.overview-period__value {
+  text-align: center;
+  font-size: 27pt;
+  color: #2f385a;
+}
+
+.page-body--heatmap {
+  align-content: stretch;
+  grid-auto-rows: 1fr;
+  min-height: 100%;
+}
+
+.page-body--heatmap > .span-12 {
+  min-height: 100%;
+}
+
+/* Appendix pages: keep header/title spacing consistent with other sections */
+.page--appendix .page-header__section {
+  white-space: nowrap;
+}
+
+.page--appendix {
+  padding-bottom: 16mm;
+}
+
+.page--appendix .page-body {
+  row-gap: 1.4mm;
+}
+
+.page--appendix .subtitle {
+  font-size: 10pt;
+  margin: 0;
+}
+
+/* Span utilities */
+.span-12 { grid-column: span 12; }
+.span-8  { grid-column: span 8; }
+.span-6  { grid-column: span 6; }
+.span-4  { grid-column: span 4; }
+.span-3  { grid-column: span 3; }
+.span-2  { grid-column: span 2; }
+
+/* =========================
+   Cover (그리드 끊기)
+   ========================= */
+.page--cover {
+  display: block !important;
+  padding: 0 !important;
+}
+
+.page--cover .cover {
+  width: 100%;
+  min-height: 1080pt;
+  padding: 30mm 24mm;
+
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  position: relative;
+
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+  background: var(--theme-color, #fff);
+  color: var(--cover-text-color, #111);
+}
+
+.cover__client {
+  font-size: 28pt;
+  font-weight: 800;
+  margin: 0 0 4mm 0;
+  text-align: left;
+}
+
+.cover__title {
+  font-size: 56pt;
+  font-weight: 900;
+  line-height: 1.1;
+  margin: 0;
+  text-align: left;
+}
+
+.cover__date {
+  font-size: 17.5pt;
+  color: var(--cover-text-color, #111);
+  margin: 8mm 0 0 0;
+  text-align: left;
+}
+
+.cover__brand {
+  font-size: 46pt;
+  font-weight: 900;
+  position: absolute;
+  right: 32mm;
+  bottom: 24mm;
+}
+
+.cover__eod {
+  font-size: 84pt;
+  font-weight: 900;
+  letter-spacing: 0em;
+  color: var(--cover-text-color, #fff);
+  text-align: center;
+}
+
+/* =========================
+   KPI Cards
+   ========================= */
+.kpi-card {
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 8mm;
+  background: #fff;
+
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.kpi-card__label {
+  font-size: 16pt;
+  color: #666;
+  font-weight: 800;
+}
+
+.kpi-card__value {
+  margin-top: 4mm;
+  font-size: 42pt;
+  font-weight: 900;
+  letter-spacing: -0.3px;
+}
+
+.kpi-card__note {
+  margin-top: 3mm;
+  font-size: 14pt;
+  color: #777;
+}
+
+/* =========================
+   Notes / Footnotes
+   ========================= */
+.note-block {
+  font-size: 16pt;
+  color: #333;
+}
+
+.note-block__line {
+  margin: 1.8mm 0;
+}
+
+.subtitle {
+  font-size: 16pt;
+  color: #444;
+  margin: 0;
+}
+
+/* ✅ “페이지 좌하단 고정 노트” (top_note, bottom_note 용) */
+.page-note {
+  position: absolute;
+  left: 14mm;
+  bottom: 10mm;
+  z-index: 2;
+
+  font-size: 14.5pt;
+  color: #555;
+  margin: 0;
+
+  /* 겹침/찢김 최소화 */
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* ✅ 실제로 좌측 하단에 모아두는 스타일 */
+.page-note--left {
+  width: 120mm;          /* 필요 시 100~150mm 조절 */
+  text-align: left;
+}
+
+/* ✅ 우측 하단 고정 노트 */
+.page-note--right {
+  left: auto;
+  right: 14mm;
+  bottom: 18mm;
+  font-size: 20pt;
+  text-align: right;
+}
+
+/* 일반 footnote (차트 아래/표 아래 등) */
+.footnote {
+  font-size: 14.5pt;
+  color: #555;
+  margin: 1mm 0 0 0;
+
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* =========================
+   Figures / Charts
+   ========================= */
+.figure {
+  margin: 0;
+  border-radius: 12px;
+
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.figure__img {
+  width: 100%;
+  height: auto;
+  max-height: 150mm;
+  object-fit: contain;
+  display: block;
+}
+
+.figure__svg {
+  width: 100%;
+  max-height: 150mm;
+}
+
+.figure__svg svg {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+  background: transparent !important;
+}
+
+/* 모든 차트 래퍼/내부 SVG 배경 투명화 */
+.figure,
+.figure__svg,
+.figure__img,
+.mini-chart-svg,
+.mini-chart-svg svg,
+.content-card__chart,
+.content-card__chart svg,
+.combo-card__viz,
+.combo-card__viz svg {
+  background: transparent !important;
+}
+
+/* Matplotlib SVG 배경(흰색 patch) 제거 */
+.figure__svg svg #patch_1 path,
+.figure__svg svg #patch_2 path,
+.mini-chart-svg svg #patch_1 path,
+.mini-chart-svg svg #patch_2 path {
+  fill: transparent !important;
+}
+
+.figure--heatmap {
+  justify-self: center;
+  align-self: center;
+  margin: 0 auto;
+}
+
+.figure--heatmap .figure__svg,
+.figure--heatmap .figure__img {
+  max-height: 170mm;
+}
+
+/* Primary line charts (followers / ctr): keep room for notes/chips */
+.figure--line-primary .figure__svg,
+.figure--line-primary .figure__img {
+  max-height: 213mm;
+}
+
+.figure--line-primary .figure__svg svg {
+  max-height: 213mm !important;
+  width: 100% !important;
+  height: auto !important;
+}
+
+/* Split line charts (organic pair): tighter height to avoid overlap */
+.figure--line-split .figure__svg,
+.figure--line-split .figure__img {
+  max-height: 118mm;
+}
+
+.figure--line-split .figure__svg svg {
+  max-height: 118mm !important;
+  width: 100% !important;
+  height: auto !important;
+}
+
+.heatmap-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2.2mm;
+  min-height: 100%;
+  height: 100%;
+}
+
+/* Heatmap pages: move chart/rank block upward and tighten their vertical gap */
+.page--target-heatmap .heatmap-panel {
+  transform: translateY(-9mm);
+}
+
+.heatmap-center {
+  width: 100%;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.heatmap-panel .figure--heatmap {
+  width: 100%;
+  max-width: 340mm;
+}
+
+.heatmap-note {
+  text-align: center;
+}
+
+.figure__placeholder {
+  width: 100%;
+  height: 140mm;
+  border: 2px dashed #ddd;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #999;
+  font-weight: 900;
+}
+
+.figure__caption {
+  margin-top: 2mm;
+  font-size: 14pt;
+  color: #555;
+}
+
+/* 차트+노트 묶음용 */
+.keep-together {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+/* 차트 바로 아래 footnote가 갈라지는 현상 완화 */
+.figure + .footnote {
+  break-before: avoid;
+  page-break-before: avoid;
+}
+
+/* =========================
+   Content cards (Top/Bottom)
+   ========================= */
+.content-card {
+  border: 1px solid #eee;
+  border-radius: 14px;
+  padding: 4mm 6mm 5mm;
+
+  break-inside: avoid;
+  page-break-inside: avoid;
+
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 4mm;
+  row-gap: 2mm;
+  align-content: start;
+}
+
+.content-card__thumb {
+  grid-column: span 4;
+  grid-row: 1;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  aspect-ratio: 1 / 1;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  align-self: center;
+}
+
+.content-card__chart {
+  grid-column: span 8;
+  grid-row: 1;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  min-height: 80mm;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  align-self: center;
+}
+
+.content-card__thumb-caption {
+  grid-column: span 4;
+  grid-row: 2;
+  text-align: center;
+  font-size: 18pt;
+  color: #777;
+  line-height: 1.3;
+}
+
+.content-card__chart-caption {
+  grid-column: span 8;
+  grid-row: 2;
+  text-align: center;
+  font-size: 18pt;
+  color: #777;
+  line-height: 1.3;
+}
+
+.content-card__thumb img,
+.content-card__chart img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.content-card__chart svg,
+.mini-chart-svg svg {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+}
+
+.content-card__chart .mini-chart-svg {
+  width: 100%;
+}
+
+.thumb-placeholder,
+.mini-chart-placeholder {
+  color: #aaa;
+  font-weight: 900;
+}
+
+/* =========================
+   Purchase contents page
+   ========================= */
+.purchase-contents-page {
+  break-after: page;
+  page-break-after: always;
+}
+
+.purchase-contents-title {
+  margin: 0 0 8mm 0;
+}
+
+.purchase-contents-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6mm;
+  align-items: start;
+}
+
+.purchase-content-card {
+  border: 1px solid #eee;
+  border-radius: 14px;
+  padding: 4mm;
+
+  break-inside: avoid;
+  page-break-inside: avoid;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #fff;
+}
+
+.purchase-content-card__thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+
+.purchase-content-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.purchase-content-card__meta {
+  width: 100%;
+  margin-top: 3mm;
+  font-size: 16pt;
+  color: #555;
+  text-align: center;
+  word-break: keep-all;
+}
+
+.purchase-thumb-placeholder {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  color: #aaa;
+  font-weight: 900;
+  background: #f7f7f7;
+}
+
+/* 썸네일 영역 */
+.purchase-content-card__thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: transparent;
+}
+
+.purchase-content-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* 업로드일자 */
+.purchase-content-card__meta {
+  width: 100%;
+  margin-top: 3mm;
+  font-size: 16pt;
+  color: #555;
+  text-align: center;
+  word-break: keep-all;
+}
+
+/* 이미지 없을 때 */
+.purchase-thumb-placeholder {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  place-items: center;
+  color: #aaa;
+  font-weight: 900;
+  background: #f7f7f7;
+}
+
+/* =========================
+   Keyword combo cards
+   ========================= */
+.combo-page-body {
+  align-content: center;
+  row-gap: 3mm;
+}
+
+.combo-page-body > .span-4 {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.combo-card {
+  border: 1px solid #eee;
+  border-radius: 14px;
+  padding: 5.5mm;
+
+  break-inside: avoid;
+  page-break-inside: avoid;
+
+  display: grid;
+  grid-template-rows: min-content min-content 1fr;
+  row-gap: 2mm;
+}
+
+.combo-card__title {
+  font-size: 17pt;
+  font-weight: 900;
+}
+
+.combo-card__sub {
+  font-size: 14pt;
+  color: #666;
+}
+
+.combo-card__viz {
+  border: 1px solid #f0f0f0;
+  border-radius: 12px;
+  background: transparent;
+  height: 136mm;
+  min-height: 136mm;
+  max-height: 136mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.combo-card__viz img {
+  max-width: none;
+  max-height: none;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.combo-card__viz svg {
+  max-width: none !important;
+  max-height: none !important;
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  margin: 0;
+}
+
+.combo-placeholder {
+  color: #aaa;
+  font-weight: 900;
+}
+
+.page--combo {
+  padding-bottom: 18mm;
+}
+
+.page--combo .combo-page-note {
+  position: static;
+  left: auto;
+  bottom: auto;
+  z-index: auto;
+  grid-column: 1 / -1;
+  width: 100%;
+  line-height: 1.3;
+  margin-top: 1mm;
+}
+
+/* =========================
+   Chips / annotations
+   ========================= */
+.annotation-row {
+  display: flex;
+  gap: 2mm;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-block;
+  padding: 1.6mm 3mm;
+  border-radius: 999px;
+  border: 1px solid #e7e7e7;
+  font-size: 13.8pt;
+  color: #555;
+}
+
+/* =========================
+   Rank block
+   ========================= */
+.rank-block {
+  font-size: 17pt;
+  font-weight: 900;
+  color: var(--theme-title-color);
+}
+
+.rank-block__line {
+  margin: 1mm 0;
+}
+
+.rank-block--center {
+  width: 100%;
+  text-align: center;
+}
+
+.rank-block--heatmap {
+  font-size: 38pt;
+  margin: 0;
+}
+
+.rank-block--heatmap-inline {
+  margin-top: 0;
+}
+
+.rank-block__footnote {
+  font-size: 0.4em;
+  font-weight: 400;
+  color: #999999;
+  margin-top: 2mm;
+  line-height: 1.4;
+}
+
+.page-note--heatmap-center {
+  left: 0;
+  right: 0;
+  bottom: 18mm;
+  width: auto;
+  text-align: center;
+}
+
+/* =========================
+   Tables (Appendix + Keyword tables)
+   ========================= */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5pt;
+
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.table th, .table td {
+  border: 1px solid #e8e8e8;
+  padding: 2.5mm 2.8mm;
+  vertical-align: middle;
+  text-align: center;
+}
+
+.table th {
+  background: #fafafa;
+  font-weight: 900;
+}
+
+/* 표 바로 아래 footnote 안정화 */
+.table + .footnote {
+  break-before: avoid;
+  page-break-before: avoid;
+}
+
+/* Appendix table compaction to stay within a single page */
+.appendix-table-wrap .table {
+  font-size: 10.5pt;
+  table-layout: fixed;
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+.appendix-table-wrap .table th,
+.appendix-table-wrap .table td {
+  padding: 1.3mm 2mm;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+}
+
+.appendix-table-wrap .table-title {
+  font-size: 10.5pt;
+  margin-bottom: 0.6mm;
+}
+
+.appendix-table-wrap .footnote {
+  font-size: 9.5pt;
+  margin-top: 0.5mm;
+}
+
+.appendix-table-wrap {
+  break-inside: auto;
+  page-break-inside: auto;
+}
+
+/* =========================
+   Keyword Top/Bottom Quad Layout
+   (graph, graph, table, table)
+   ========================= */
+.keyword-quad {
+  column-gap: 3.2mm;
+  row-gap: 2.2mm;
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
+/* 전체 하위 10개 섹션의 타이틀-차트 간격 보정 */
+.keyword-quad--overall-bottom {
+  margin-top: -3mm;
+}
+
+.keyword-quad--overall-bottom > .span-3 {
+  min-height: 124mm;
+}
+
+.keyword-quad > .span-3 {
+  min-height: 130mm;
+  display: flex;
+  flex-direction: column;
+}
+
+.keyword-quad > .span-3 .figure {
+  flex: 1;
+  display: flex;
+}
+
+.keyword-quad > .span-3 .figure__svg,
+.keyword-quad > .span-3 .figure__img {
+  height: 100%;
+  max-height: none;
+}
+
+.keyword-quad > .span-3 .figure__svg svg {
+  height: 100% !important;
+}
+
+.keyword-quad > .span-3 .table {
+  height: 100%;
+  table-layout: fixed;
+}
+
+.keyword-quad .table-title {
+  font-size: 12.2pt;
+  font-weight: 800;
+  color: #444;
+  margin: 0 0 1.2mm 0;
+  line-height: 1.25;
+}
+
+.keyword-quad .table {
+  font-size: 22.4pt;
+}
+
+.keyword-quad .table th,
+.keyword-quad .table td {
+  padding: 1.2mm 1.5mm;
+}
+
+/* =========================
+   EOD (완전 중앙)
+   ========================= */
+.page--eod {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  min-height: 1080pt;
+}
+
+.page--eod .eod {
+  margin: 0;
+  font-size: 20pt;
+  color: #aaa;
+  font-weight: 900;
+  writing-mode: horizontal-tb !important;
+  text-orientation: mixed !important;
+}
+
+/* =========================
+   Safety: cover/eod에서 page-note가 있더라도 레이아웃 망가지지 않게
+   ========================= */
+.page--cover .page-note,
+.page--eod .page-note {
+  position: static;
+  width: auto;
+  margin-top: 6mm;
+}
+
+/* =========================
+   구매 전환 콘텐츠
+   ========================= */
+.page--purchase-contents .purchase-contents-body {
+  align-items: flex-start;
+}
+
+.page--purchase-contents .page-body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 40px;
+  flex-wrap: nowrap; 
+}
+
+.purchase-content-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.purchase-content-card__thumb {
+  width: 400px;
+  height: 520px;
+  overflow: hidden;
+  background: #f3f3f3;
+}
+
+.purchase-content-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.purchase-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #e9e9e9;
+  color: #777;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.purchase-content-card__meta {
+  margin-top: 6px;
+  font-size: 20px;
+  color: #8d8d8d;
+  font-weight: 600;
+}
+
+.purchase-content-card__chart {
+  margin-top: 8px;
+  width: 450px;
+  height: 450px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.purchase-content-card__chart svg,
+.purchase-chart-svg svg,
+.purchase-content-card__chart img {
+  width: 100%;
+  height: 100%;
+}
+
+.purchase-chart-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #f1f1f1;
+  color: #999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.purchase-content-card__count {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+/* ========================= 
+  팔로워 인구통계 
+  ========================= */ 
+
+.page--follower-demographics {
+  height: 100%;
+}
+
+/* 전체 */
+.page--follower-demographics .follower-demo-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between; 
+  height: calc(100% - 140px); 
+  margin-top: 10px;
+}
+
+/* row */
+.page--follower-demographics .row {
+  display: flex;
+  gap: 10px;
+  flex: 1;
+}
+
+/* 카드 */
+.page--follower-demographics .demo-card {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+/* figure */
+.page--follower-demographics .figure {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page--follower-demographics .figure__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* 상단 (도넛) */
+.page--follower-demographics .row:first-child {
+  flex: 0.95;
+}
+
+/* 하단 (바차트) */
+.page--follower-demographics .row:last-child {
+  flex: 1.1;
+  transform: translate(-60px, -70px);
+}
+
+/* 기준일 */
+.page--follower-demographics .follower-demo-date {
+  margin: 20px 0 6px;
+  font-size: 15px;
+  color: #666;
+}
+
+/* ========================= 
+  라인차트 위치 조정
+  ========================= */
+.title-block {
+  margin-bottom: 2mm;
+}
+
+.page-body.line-chart-row {
+  align-content: start !important;
+  min-height: auto !important;
+}
+
+/* 2개 차트 */
+.line-chart-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 32px;
+  max-width: 2200px;
+  width: 100%;
+  margin: 0 auto !important;
+  padding-top: 0 !important;
+  align-items: start !important;
+}
+
+.line-chart-row .span-6 {
+  grid-column: span 1;
+  width: 100%;
+  padding-top: 0 !important;
+  align-self: start !important;
+}
+
+.line-chart-row .figure {
+  margin-top: 50mm !important;   /* 여기로 이동 */
+}
+
+.line-chart-row .span-12 {
+  grid-column: 1 / -1;
+}
+
+.line-chart-row img,
+.line-chart-row svg,
+.line-chart-row figure {
+  display: block;
+}
+
+/* 1개 차트 */
+.line-chart-row.line-chart-row--single {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start !important;
+  min-height: 0 !important;
+  height: auto;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+.line-chart-row--single .span-6 {
+  max-width: 60%;
+  margin: 0 auto !important;
+  padding-top: 0 !important;
+}
+
+.line-chart-row--single .figure {
+  margin-top: 50mm !important;
+}
