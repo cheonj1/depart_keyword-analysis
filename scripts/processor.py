@@ -1986,3 +1986,764 @@ def get_follower_age_gender_distribution(account_id, date_start, date_end):
     )
 
     return None if df.empty else df
+
+
+# ==============================================================================
+# ad_ids 기반 쿼리 함수 (_by_ids)
+# account_id/campaign 필터 대신 ad_id IN (...) 로 직접 필터링
+# ==============================================================================
+
+def _ids_sql(ad_ids):
+    return "(" + ", ".join(str(int(i)) for i in ad_ids) + ")"
+
+
+def get_ad_meta_by_ids(ad_ids):
+    """ad_ids에서 account_id, brand_name, start/end 자동 도출"""
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            a.account_id,
+            aa.brand_name[1] AS brand_name,
+            MIN(apd.date) AS start_date,
+            MAX(apd.date) AS end_date
+        FROM ad a
+        JOIN ad_account aa ON a.account_id = aa.account_id
+        JOIN ad_performance_daily apd ON a.ad_id = apd.ad_id
+        WHERE a.ad_id IN {ids}
+        GROUP BY a.account_id, aa.brand_name
+        LIMIT 1
+    """
+    df = pd.read_sql(query, engine)
+    if df.empty:
+        return None
+    row = df.iloc[0]
+    return {
+        "account_id": int(row["account_id"]),
+        "brand_name": str(row["brand_name"]),
+        "start": str(row["start_date"]),
+        "end": str(row["end_date"]),
+    }
+
+
+def get_active_ad_count_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT COUNT(DISTINCT apd.ad_id) AS ad_count
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+    """
+    df = pd.read_sql(query, engine)
+    return int(df.iloc[0]["ad_count"]) if not df.empty else 0
+
+
+def get_total_content_count_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT COUNT(DISTINCT a.ig_permalink) AS content_count
+        FROM ad a
+        JOIN ad_performance_daily apd ON a.ad_id = apd.ad_id
+        WHERE a.ad_id IN {ids}
+            AND a.ig_permalink IS NOT NULL
+            AND a.ig_timestamp IS NOT NULL
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+    """
+    df = pd.read_sql(query, engine)
+    return int(df.iloc[0]["content_count"]) if not df.empty else 0
+
+
+def get_ad_period_by_ids(ad_ids):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT MIN(created_time) AS start_date, MAX(created_time)::date AS end_date
+        FROM ad
+        WHERE ad_id IN {ids}
+    """
+    df = pd.read_sql(query, engine)
+    if not df.empty and pd.notna(df.iloc[0]["start_date"]):
+        return df.iloc[0]["start_date"], df.iloc[0]["end_date"]
+    return None, None
+
+
+def get_content_period_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT MIN(a.ig_timestamp) AS start_date, MAX(a.ig_timestamp) AS end_date
+        FROM ad a
+        JOIN ad_performance_daily apd ON a.ad_id = apd.ad_id
+        WHERE a.ad_id IN {ids}
+            AND a.ig_timestamp IS NOT NULL
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+    """
+    df = pd.read_sql(query, engine)
+    if not df.empty and pd.notna(df.iloc[0]["start_date"]):
+        return df.iloc[0]["start_date"].date(), df.iloc[0]["end_date"].date()
+    return None, None
+
+
+def get_total_keyword_count_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT DISTINCT ak.essential_keywords, ak.variable_keywords
+        FROM ad
+        JOIN ad_performance_daily apd ON ad.ad_id = apd.ad_id
+        LEFT JOIN ad_keyword ak ON ad.ad_id = ak.ad_id
+        WHERE ad.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+    """
+    df = pd.read_sql(query, engine)
+    all_keywords = set()
+    for _, row in df.iterrows():
+        for col in ["essential_keywords", "variable_keywords"]:
+            val = row[col]
+            if val is None:
+                continue
+            if isinstance(val, (list, np.ndarray)):
+                for k in val:
+                    if k:
+                        all_keywords.add(str(k).strip())
+            elif isinstance(val, str):
+                cleaned = val.replace("{", "").replace("}", "").strip()
+                for k in cleaned.split(","):
+                    k_s = k.strip()
+                    if k_s:
+                        all_keywords.add(k_s)
+    return len(all_keywords)
+
+
+def get_ctr_data_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            DATE_TRUNC('week', apd.date)::date AS week_start,
+            SUM(clicks) AS total_clicks,
+            SUM(impressions) AS total_impressions,
+            ROUND((SUM(clicks)::numeric / NULLIF(SUM(impressions), 0)::numeric) * 100, 2) AS ctr
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+        GROUP BY week_start
+        ORDER BY week_start
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def get_ctr_monthly_data_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            DATE_TRUNC('month', apd.date)::date AS month_start,
+            SUM(clicks) AS total_clicks,
+            SUM(impressions) AS total_impressions,
+            ROUND((SUM(clicks)::numeric / NULLIF(SUM(impressions), 0)::numeric) * 100, 2) AS ctr
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+        GROUP BY month_start
+        ORDER BY month_start
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def get_imp_threshold_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT SUM(impressions) AS total_site_imp
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+    """
+    df = pd.read_sql(query, engine)
+    total = df.iloc[0]["total_site_imp"] or 0
+    return total, total * 0.0005
+
+
+def get_target_heatmap_by_ids(ad_ids, date_start, date_end, threshold):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            apd.age,
+            apd.gender,
+            SUM(apd.impressions) AS impressions,
+            SUM(apd.clicks) AS clicks,
+            ROUND((SUM(apd.clicks)::numeric / NULLIF(SUM(apd.impressions), 0)::numeric) * 100, 2) AS ctr
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+            AND apd.gender != 'unknown'
+        GROUP BY apd.age, apd.gender
+        HAVING SUM(apd.impressions) >= {threshold}
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def get_purchase_heatmap_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            apd.age,
+            apd.gender,
+            COALESCE(SUM(apd.purchases), 0) AS purchases
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+            AND apd.purchases IS NOT NULL
+            AND apd.age IS NOT NULL
+            AND apd.gender IS NOT NULL
+        GROUP BY apd.age, apd.gender
+        ORDER BY apd.age, apd.gender
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def get_purchase_age_gender_heatmap_page_data_by_ids(ad_ids, date_start, date_end):
+    heatmap_df = get_purchase_heatmap_by_ids(ad_ids, date_start, date_end)
+    if heatmap_df is None or heatmap_df.empty:
+        return {"is_visible": False}
+    return {"is_visible": True, "title": "타겟별 구매전환", "heatmap": heatmap_df}
+
+
+def get_raw_keyword_performance_by_ids(ad_ids, date_start, date_end, target_age=None, target_gender=None):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    target_filter = _build_target_filter(target_age, target_gender)
+    query = f"""
+        SELECT
+            ek.keyword,
+            COUNT(DISTINCT perf.ad_body) AS doc_freq,
+            SUM(perf.ad_imp) AS total_impressions,
+            SUM(perf.ad_clk) AS total_clicks,
+            ROUND((SUM(perf.ad_clk)::numeric / NULLIF(SUM(perf.ad_imp), 0)) * 100, 2) AS avg_ctr
+        FROM (
+            SELECT
+                apd.ad_id,
+                MAX(a.body) AS ad_body,
+                SUM(apd.impressions) AS ad_imp,
+                SUM(apd.clicks) AS ad_clk
+            FROM ad_performance_daily apd
+            INNER JOIN ad a ON apd.ad_id = a.ad_id
+            WHERE apd.ad_id IN {ids}
+                AND apd.date >= '{date_start}'::date
+                AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+                {target_filter}
+                AND apd.gender != 'unknown'
+            GROUP BY apd.ad_id
+        ) perf
+        INNER JOIN (
+            SELECT DISTINCT
+                ak.ad_id,
+                CASE
+                    WHEN REPLACE(REPLACE(TRIM(k.keyword), ' ', ''), ',', '') IN ('브라키오', '브라', '키오') THEN '브라키오'
+                    ELSE TRIM(k.keyword)
+                END AS keyword
+            FROM ad_keyword ak
+            CROSS JOIN LATERAL UNNEST(
+                COALESCE(ak.essential_keywords, ARRAY[]::text[]) ||
+                COALESCE(ak.variable_keywords, ARRAY[]::text[])
+            ) AS k(keyword)
+            WHERE ak.ad_id IN {ids}
+        ) ek ON perf.ad_id = ek.ad_id
+        GROUP BY ek.keyword
+        HAVING COUNT(DISTINCT perf.ad_body) >= 1
+    """
+    return pd.read_sql(query, engine)
+
+
+def get_strategic_performance_by_ids(ad_ids, date_start, date_end, target_age=None, target_gender=None):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    target_filter = _build_target_filter(target_age, target_gender)
+    query = f"""
+        WITH ad_raw AS (
+            SELECT
+                ad.ad_id,
+                MAX(ad.body) AS ad_body,
+                ak.essential_keywords,
+                ak.variable_keywords,
+                SUM(apd.impressions) AS ad_imps,
+                SUM(apd.clicks) AS ad_clicks
+            FROM ad
+            JOIN ad_keyword ak ON ad.ad_id = ak.ad_id
+            LEFT JOIN ad_performance_daily apd ON ad.ad_id = apd.ad_id
+            WHERE ad.ad_id IN {ids}
+                AND apd.date >= '{date_start}'
+                AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+                {target_filter}
+            GROUP BY ad.ad_id, ak.essential_keywords, ak.variable_keywords
+            HAVING array_length(ak.essential_keywords, 1) >= 2
+        ),
+        raw_pairs AS (
+            SELECT
+                ad_id, ad_body, ad_imps, ad_clicks, variable_keywords,
+                NULLIF(TRIM(essential_keywords[i]), '') AS ess_a,
+                NULLIF(TRIM(essential_keywords[j]), '') AS ess_b
+            FROM ad_raw,
+            LATERAL generate_series(1, array_length(essential_keywords, 1)) i,
+            LATERAL generate_series(i + 1, array_length(essential_keywords, 1)) j
+        ),
+        combo_pairs AS (
+            SELECT DISTINCT
+                ad_id, ad_body, ad_imps, ad_clicks, variable_keywords,
+                LEAST(ess_a, ess_b) AS ess_1,
+                GREATEST(ess_a, ess_b) AS ess_2
+            FROM raw_pairs
+            WHERE ess_a IS NOT NULL AND ess_b IS NOT NULL
+        ),
+        essential_agg AS (
+            SELECT
+                ess_1, ess_2,
+                COUNT(DISTINCT ad_id) AS combo_doc_freq,
+                SUM(ad_imps) AS total_imps,
+                ROUND((SUM(ad_clicks)::numeric / NULLIF(SUM(ad_imps), 0)::numeric) * 100, 2) AS combo_overall_ctr
+            FROM combo_pairs
+            GROUP BY ess_1, ess_2
+            HAVING COUNT(DISTINCT ad_id) >= 1
+        ),
+        variable_agg AS (
+            SELECT
+                cp.ess_1, cp.ess_2,
+                vk.var_keyword,
+                COUNT(DISTINCT cp.ad_body) AS var_body_doc_freq,
+                SUM(cp.ad_imps) AS v_imps,
+                SUM(cp.ad_clicks) AS v_clicks
+            FROM combo_pairs cp
+            INNER JOIN essential_agg ea ON cp.ess_1 = ea.ess_1 AND cp.ess_2 = ea.ess_2
+            CROSS JOIN LATERAL (
+                SELECT DISTINCT
+                    CASE
+                        WHEN REPLACE(REPLACE(TRIM(v.keyword), ' ', ''), ',', '') IN ('브라키오', '브라', '키오') THEN '브라키오'
+                        ELSE TRIM(v.keyword)
+                    END AS var_keyword
+                FROM UNNEST(COALESCE(cp.variable_keywords, ARRAY[]::text[])) AS v(keyword)
+            ) vk
+            GROUP BY cp.ess_1, cp.ess_2, vk.var_keyword
+            HAVING COUNT(DISTINCT cp.ad_body) >= 1
+        ),
+        top_essential AS (
+            SELECT ess_1, ess_2, combo_doc_freq, combo_overall_ctr
+            FROM essential_agg
+            ORDER BY combo_overall_ctr DESC
+            LIMIT 15
+        )
+        SELECT
+            te.ess_1, te.ess_2,
+            te.combo_doc_freq,
+            te.combo_overall_ctr,
+            va.var_keyword,
+            va.v_clicks,
+            ROUND((va.v_clicks::numeric / NULLIF(va.v_imps, 0)::numeric) * 100, 2) AS with_var_ctr,
+            va.v_imps AS var_imps
+        FROM top_essential te
+        JOIN variable_agg va ON te.ess_1 = va.ess_1 AND te.ess_2 = va.ess_2
+        ORDER BY te.combo_overall_ctr DESC, with_var_ctr DESC
+    """
+    df = pd.read_sql(query, engine)
+    if df is None or df.empty:
+        return df
+    df = df.copy()
+    df["noun_keyword"] = df["var_keyword"].apply(lambda x: _normalize_keyword_by_pos(x, "noun"))
+    df = df.dropna(subset=["noun_keyword"])
+    if df.empty:
+        return pd.DataFrame(columns=["ess_1", "ess_2", "combo_doc_freq", "combo_overall_ctr", "var_keyword", "with_var_ctr", "var_imps"])
+    df["var_keyword"] = df["noun_keyword"]
+    grouped = (
+        df.groupby(["ess_1", "ess_2", "combo_doc_freq", "combo_overall_ctr", "var_keyword"], as_index=False)
+        .agg(v_clicks=("v_clicks", "sum"), var_imps=("var_imps", "sum"))
+    )
+    grouped["with_var_ctr"] = np.where(
+        grouped["var_imps"] > 0,
+        np.round((grouped["v_clicks"] / grouped["var_imps"]) * 100, 2),
+        np.nan,
+    )
+    grouped = grouped.sort_values(by=["combo_overall_ctr", "with_var_ctr"], ascending=[False, False])
+    return grouped[["ess_1", "ess_2", "combo_doc_freq", "combo_overall_ctr", "var_keyword", "with_var_ctr", "var_imps"]]
+
+
+def get_content_cards_by_ids(ad_ids, date_start, date_end):
+    """선택된 ad_ids 콘텐츠 카드 반환 (CTR 기준 내림차순)"""
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            a.ad_id,
+            a.fb_ad_id,
+            a.ig_timestamp AS uploaded_at,
+            NULLIF(a.thumb_link, '') AS thumbnail,
+            ROUND((SUM(apd.clicks)::numeric / NULLIF(SUM(apd.impressions), 0)::numeric) * 100, 2) AS ctr
+        FROM ad a
+        LEFT JOIN ad_performance_daily apd ON a.ad_id = apd.ad_id
+        WHERE a.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+        GROUP BY a.ad_id, a.fb_ad_id, a.ig_timestamp, a.thumb_link
+        ORDER BY ctr DESC NULLS LAST
+    """
+    df = pd.read_sql(query, engine)
+    if df.empty:
+        return []
+    results = []
+    for _, row in df.iterrows():
+        thumb_val = row.get("thumbnail")
+        thumb_val = None if pd.isna(thumb_val) else str(thumb_val).strip() or None
+        uploaded_at = row.get("uploaded_at")
+        uploaded_at = uploaded_at.date() if pd.notna(uploaded_at) else None
+        results.append({
+            "ad_id": row["ad_id"],
+            "fb_ad_id": row.get("fb_ad_id"),
+            "uploaded_at": uploaded_at,
+            "thumbnail": thumb_val,
+            "ctr": row["ctr"],
+        })
+    return results
+
+
+def has_purchase_data_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT 1
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= '{date_end}'
+            AND apd.purchases IS NOT NULL
+            AND apd.purchases > 0
+        LIMIT 1
+    """
+    df = pd.read_sql(query, engine)
+    return not df.empty
+
+
+def get_purchase_roas_weekly_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            (DATE_TRUNC('week', apd.date AT TIME ZONE 'Asia/Seoul') + INTERVAL '6 days')::date AS week_start,
+            ROUND(AVG(apd.purchase_roas)::numeric, 0) AS avg_roas
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= '{date_end}'
+            AND apd.purchase_roas IS NOT NULL
+        GROUP BY (DATE_TRUNC('week', apd.date AT TIME ZONE 'Asia/Seoul') + INTERVAL '6 days')::date
+        ORDER BY week_start
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def get_purchase_roas_monthly_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            DATE_TRUNC('month', apd.date AT TIME ZONE 'Asia/Seoul')::date AS month_start,
+            ROUND(AVG(apd.purchase_roas)::numeric, 0) AS avg_roas
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= '{date_end}'
+            AND apd.purchase_roas IS NOT NULL
+        GROUP BY DATE_TRUNC('month', apd.date AT TIME ZONE 'Asia/Seoul')::date
+        ORDER BY month_start
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def get_purchase_count_weekly_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            (DATE_TRUNC('week', apd.date AT TIME ZONE 'Asia/Seoul') + INTERVAL '6 days')::date AS week_start,
+            COALESCE(SUM(apd.purchases), 0) AS purchases
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= '{date_end}'
+            AND apd.purchases IS NOT NULL
+        GROUP BY (DATE_TRUNC('week', apd.date AT TIME ZONE 'Asia/Seoul') + INTERVAL '6 days')::date
+        ORDER BY week_start
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def get_purchase_count_monthly_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            DATE_TRUNC('month', apd.date AT TIME ZONE 'Asia/Seoul')::date AS month_start,
+            COALESCE(SUM(apd.purchases), 0) AS purchases
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= '{date_end}'
+            AND apd.purchases IS NOT NULL
+        GROUP BY DATE_TRUNC('month', apd.date AT TIME ZONE 'Asia/Seoul')::date
+        ORDER BY month_start
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def has_revenue_data_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT 1
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+            AND apd.spend IS NOT NULL
+            AND apd.purchase_roas IS NOT NULL
+        LIMIT 1
+    """
+    df = pd.read_sql(query, engine)
+    return not df.empty
+
+
+def get_spend_and_revenue_weekly_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            DATE_TRUNC('week', apd.date)::date AS week_start,
+            ROUND(COALESCE(SUM(apd.spend), 0)::numeric, 0) AS spend,
+            ROUND(COALESCE(SUM(apd.spend * apd.purchase_roas), 0)::numeric, 0) AS revenue
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+            AND apd.spend IS NOT NULL
+            AND apd.purchase_roas IS NOT NULL
+        GROUP BY DATE_TRUNC('week', apd.date)::date
+        ORDER BY week_start
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def get_spend_and_revenue_monthly_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            DATE_TRUNC('month', apd.date)::date AS month_start,
+            ROUND(COALESCE(SUM(apd.spend), 0)::numeric, 0) AS spend,
+            ROUND(COALESCE(SUM(apd.spend * apd.purchase_roas), 0)::numeric, 0) AS revenue
+        FROM ad_performance_daily apd
+        WHERE apd.ad_id IN {ids}
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+            AND apd.spend IS NOT NULL
+            AND apd.purchase_roas IS NOT NULL
+        GROUP BY DATE_TRUNC('month', apd.date)::date
+        ORDER BY month_start
+    """
+    df = pd.read_sql(query, engine)
+    return None if df.empty else df
+
+
+def get_purchase_contents_data_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+        SELECT
+            a.source_instagram_media_id AS content_key,
+            MIN(a.ig_timestamp) AS uploaded_at,
+            MAX(NULLIF(a.thumb_link, '')) AS thumbnail,
+            STRING_AGG(DISTINCT a.ad_name, ' / ') AS ad_names,
+            ARRAY_AGG(DISTINCT a.ad_id) AS ad_ids,
+            ARRAY_AGG(DISTINCT a.fb_ad_id) FILTER (WHERE a.fb_ad_id IS NOT NULL) AS fb_ad_ids,
+            COALESCE(SUM(apd.purchases), 0) AS purchases
+        FROM ad_performance_daily apd
+        JOIN ad a ON apd.ad_id = a.ad_id
+        WHERE a.ad_id IN {ids}
+            AND a.ig_timestamp IS NOT NULL
+            AND a.source_instagram_media_id IS NOT NULL
+            AND apd.date >= '{date_start}'
+            AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+        GROUP BY a.source_instagram_media_id
+        HAVING COALESCE(SUM(apd.purchases), 0) >= 1
+        ORDER BY purchases DESC, MIN(a.ig_timestamp) DESC
+    """
+    df = pd.read_sql(query, engine)
+    if df.empty:
+        return []
+    results = []
+    for rank, (_, row) in enumerate(df.iterrows(), start=1):
+        thumb_val = row.get("thumbnail")
+        thumb_val = None if pd.isna(thumb_val) else str(thumb_val).strip() or None
+        uploaded_at = row.get("uploaded_at")
+        uploaded_at = uploaded_at.date() if pd.notna(uploaded_at) else None
+        results.append({
+            "rank": rank,
+            "content_key": row["content_key"],
+            "source_instagram_media_id": row["content_key"],
+            "ad_name": row.get("ad_names"),
+            "fb_ad_id": (row.get("fb_ad_ids") or [None])[0],
+            "fb_ad_ids": row.get("fb_ad_ids") or [],
+            "ad_ids": row.get("ad_ids") or [],
+            "uploaded_at": uploaded_at,
+            "thumbnail": thumb_val,
+            "purchases": int(row["purchases"]) if pd.notna(row["purchases"]) else 0,
+        })
+    return results
+
+
+def get_purchase_contents_pages_data_by_ids(ad_ids, date_start, date_end):
+    contents = get_purchase_contents_data_by_ids(ad_ids, date_start, date_end)
+    if not contents:
+        return {"title": "구매가 발생한 콘텐츠", "pages": [], "items": [], "total_count": 0}
+    return {
+        "title": "구매가 발생한 콘텐츠",
+        "pages": chunk_list(contents, 4),
+        "items": contents,
+        "total_count": len(contents),
+    }
+
+
+def get_essence_target_performance_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+    SELECT
+        res.single_ess AS "키워드",
+        res.total_ad_count AS "등장 광고 수",
+        MAX(CASE WHEN res.imp_rank = 1 THEN res.age || ' ' || res.gender END) AS "최다 노출 타겟",
+        MAX(CASE WHEN res.imp_rank = 1 THEN res.target_imp END)::bigint AS "타겟 노출량",
+        ROUND(MAX(CASE WHEN res.imp_rank = 1 THEN res.target_imp END)::numeric / NULLIF(MAX(res.total_imp), 0) * 100, 1) || '%%' AS "노출 비중",
+        MAX(res.total_imp)::bigint AS "총 노출량",
+        MAX(CASE WHEN res.clk_rank = 1 THEN res.age || ' ' || res.gender END) AS "최다 클릭 타겟",
+        MAX(CASE WHEN res.clk_rank = 1 THEN res.target_clk END)::bigint AS "타겟 클릭량",
+        ROUND(MAX(CASE WHEN res.clk_rank = 1 THEN res.target_clk END)::numeric / NULLIF(MAX(res.total_clk), 0) * 100, 1) || '%%' AS "클릭 비중",
+        MAX(res.total_clk)::bigint AS "총 클릭량"
+    FROM (
+        SELECT
+            ts.single_ess, ts.age, ts.gender, ts.target_imp, ts.target_clk,
+            summ.total_ad_count,
+            SUM(ts.target_imp) OVER(PARTITION BY ts.single_ess) AS total_imp,
+            SUM(ts.target_clk) OVER(PARTITION BY ts.single_ess) AS total_clk,
+            RANK() OVER (PARTITION BY ts.single_ess ORDER BY ts.target_imp DESC, ts.age) AS imp_rank,
+            RANK() OVER (PARTITION BY ts.single_ess ORDER BY ts.target_clk DESC, ts.age) AS clk_rank
+        FROM (
+            SELECT ak_u.single_ess, p.age, p.gender,
+                SUM(p.imp) AS target_imp, SUM(p.clk) AS target_clk
+            FROM (
+                SELECT ad_id, UNNEST(essential_keywords) AS single_ess
+                FROM ad_keyword
+                WHERE ad_id IN {ids}
+                    AND essential_keywords IS NOT NULL
+                    AND ARRAY_LENGTH(essential_keywords, 1) > 0
+            ) ak_u
+            INNER JOIN (
+                SELECT apd.ad_id, apd.age, apd.gender,
+                    SUM(apd.impressions) AS imp, SUM(apd.clicks) AS clk
+                FROM ad_performance_daily apd
+                WHERE apd.ad_id IN {ids}
+                    AND apd.date >= '{date_start}'::date
+                    AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+                GROUP BY 1, 2, 3
+            ) p ON ak_u.ad_id = p.ad_id
+            GROUP BY 1, 2, 3
+        ) ts
+        INNER JOIN (
+            SELECT UNNEST(ak.essential_keywords) AS single_ess,
+                COUNT(DISTINCT ak.ad_id) AS total_ad_count
+            FROM ad_keyword ak
+            WHERE ak.ad_id IN {ids}
+            GROUP BY 1
+        ) summ ON ts.single_ess = summ.single_ess
+    ) res
+    GROUP BY res.single_ess, res.total_ad_count
+    ORDER BY "등장 광고 수" DESC, "총 노출량" DESC
+    """
+    return pd.read_sql(query, engine)
+
+
+def get_variable_target_performance_by_ids(ad_ids, date_start, date_end):
+    engine = get_engine()
+    ids = _ids_sql(ad_ids)
+    query = f"""
+    SELECT
+        res.single_var AS "키워드",
+        res.total_ad_count AS "등장 광고 수",
+        MAX(CASE WHEN res.imp_rank = 1 THEN res.age || ' ' || res.gender END) AS "최다 노출 타겟",
+        MAX(CASE WHEN res.imp_rank = 1 THEN res.target_imp END)::bigint AS "타겟 노출량",
+        ROUND(MAX(CASE WHEN res.imp_rank = 1 THEN res.target_imp END)::numeric / NULLIF(MAX(res.total_imp), 0) * 100, 1) || '%%' AS "노출 비중",
+        MAX(res.total_imp)::bigint AS "총 노출량",
+        MAX(CASE WHEN res.clk_rank = 1 THEN res.age || ' ' || res.gender END) AS "최다 클릭 타겟",
+        MAX(CASE WHEN res.clk_rank = 1 THEN res.target_clk END)::bigint AS "타겟 클릭량",
+        ROUND(MAX(CASE WHEN res.clk_rank = 1 THEN res.target_clk END)::numeric / NULLIF(MAX(res.total_clk), 0) * 100, 1) || '%%' AS "클릭 비중",
+        MAX(res.total_clk)::bigint AS "총 클릭량"
+    FROM (
+        SELECT
+            ts.single_var, ts.age, ts.gender, ts.target_imp, ts.target_clk,
+            summ.total_ad_count,
+            SUM(ts.target_imp) OVER(PARTITION BY ts.single_var) AS total_imp,
+            SUM(ts.target_clk) OVER(PARTITION BY ts.single_var) AS total_clk,
+            RANK() OVER (PARTITION BY ts.single_var ORDER BY ts.target_imp DESC, ts.age) AS imp_rank,
+            RANK() OVER (PARTITION BY ts.single_var ORDER BY ts.target_clk DESC, ts.age) AS clk_rank
+        FROM (
+            SELECT ak_u.single_var, p.age, p.gender,
+                SUM(p.imp) AS target_imp, SUM(p.clk) AS target_clk
+            FROM (
+                SELECT ad_id, UNNEST(variable_keywords) AS single_var
+                FROM ad_keyword
+                WHERE ad_id IN {ids}
+                    AND variable_keywords IS NOT NULL
+                    AND ARRAY_LENGTH(variable_keywords, 1) > 0
+            ) ak_u
+            INNER JOIN (
+                SELECT apd.ad_id, apd.age, apd.gender,
+                    SUM(apd.impressions) AS imp, SUM(apd.clicks) AS clk
+                FROM ad_performance_daily apd
+                WHERE apd.ad_id IN {ids}
+                    AND apd.date >= '{date_start}'::date
+                    AND apd.date <= DATE_TRUNC('week', '{date_end}'::date)::date
+                GROUP BY 1, 2, 3
+            ) p ON ak_u.ad_id = p.ad_id
+            GROUP BY 1, 2, 3
+        ) ts
+        INNER JOIN (
+            SELECT UNNEST(ak.variable_keywords) AS single_var,
+                COUNT(DISTINCT ak.ad_id) AS total_ad_count
+            FROM ad_keyword ak
+            WHERE ak.ad_id IN {ids}
+            GROUP BY 1
+        ) summ ON ts.single_var = summ.single_var
+    ) res
+    GROUP BY res.single_var, res.total_ad_count
+    ORDER BY "등장 광고 수" DESC, "총 노출량" DESC
+    LIMIT 50
+    """
+    return pd.read_sql(query, engine)
