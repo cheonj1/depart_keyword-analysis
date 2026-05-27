@@ -24,15 +24,23 @@ DEFAULT_THEME = "#4e73df"
 
 
 def _configure_matplotlib_fonts() -> None:
-    # Prefer Korean-capable fonts to avoid broken glyphs in SVG.
+    import matplotlib.font_manager as fm
+
+    available = {f.name for f in fm.fontManager.ttflist}
     preferred = [
         "Apple SD Gothic Neo",
         "Nanum Gothic",
+        "Pretendard",
+        "Noto Sans KR",
+        "Malgun Gothic",
         "DejaVu Sans",
     ]
-    plt.rcParams["font.family"] = preferred
+    matched = [f for f in preferred if f in available]
+    if not matched:
+        matched = ["DejaVu Sans"]
+
+    plt.rcParams["font.family"] = matched
     plt.rcParams["axes.unicode_minus"] = False
-    # Embed glyphs as paths for consistent rendering in SVG/PDF.
     plt.rcParams["svg.fonttype"] = "path"
 
 
@@ -133,7 +141,14 @@ def is_dark_color(hex_color: str) -> bool:
     return relative_luminance(hex_color) < 0.5
 
 
+_svg_counter = 0
+
+
 def _fig_to_svg(fig) -> str:
+    global _svg_counter
+    _svg_counter += 1
+    prefix = f"svg{_svg_counter}_"
+
     buf = io.StringIO()
     fig.savefig(buf, format="svg", bbox_inches="tight")
     plt.close(fig)
@@ -141,6 +156,19 @@ def _fig_to_svg(fig) -> str:
     idx = svg.find("<svg")
     if idx != -1:
         svg = svg[idx:]
+
+    import re
+
+    id_map: dict[str, str] = {}
+    for m in re.finditer(r'\bid="([^"]+)"', svg):
+        old_id = m.group(1)
+        id_map[old_id] = prefix + old_id
+
+    for old_id, new_id in id_map.items():
+        svg = svg.replace(f'id="{old_id}"', f'id="{new_id}"')
+        svg = svg.replace(f'href="#{old_id}"', f'href="#{new_id}"')
+        svg = svg.replace(f'xlink:href="#{old_id}"', f'xlink:href="#{new_id}"')
+
     return svg
 
 

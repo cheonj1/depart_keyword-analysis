@@ -84,6 +84,17 @@ def _safe_name(token: Any) -> str:
     return re.sub(r"[^0-9A-Za-z_.-]", "_", text)
 
 
+def _upgrade_fbcdn_thumbnail_url(url: str) -> str:
+    """Facebook CDN URL의 stp 파라미터에서 저해상도 설정을 고해상도로 교체."""
+    if "fbcdn.net" not in url:
+        return url
+    # p64x64 → p1080x1080 (픽셀 크기 업그레이드)
+    url = re.sub(r'p\d+x\d+', 'p1080x1080', url)
+    # q75 → q100 (품질 업그레이드)
+    url = re.sub(r'_q\d+_', '_q100_', url)
+    return url
+
+
 def _materialize_content_thumbnails(items: list[dict[str, Any]], output_dir: str = "static/thumbnail") -> None:
     if not items:
         return
@@ -128,6 +139,31 @@ def _materialize_content_thumbnails(items: list[dict[str, Any]], output_dir: str
 
         s3_loc = _parse_s3_location(src)
         if not s3_loc:
+            # 웹 URL(Facebook CDN 포함): 로컬에 다운로드해서 file://로 제공
+            if src.startswith("http://") or src.startswith("https://"):
+                import urllib.request
+                # fbcdn.net URL은 고화질로 업그레이드
+                download_url = _upgrade_fbcdn_thumbnail_url(src)
+                name_seed = hashlib.sha1(src.encode("utf-8")).hexdigest()[:16]
+                local_file = out_dir / f"{name_seed}.jpg"
+                if local_file.exists() and local_file.stat().st_size > 0:
+                    local_src = f"./{local_file.as_posix()}"
+                    item["thumbnail"] = local_src
+                    cache[src] = local_src
+                else:
+                    try:
+                        req = urllib.request.Request(
+                            download_url,
+                            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+                        )
+                        with urllib.request.urlopen(req, timeout=15) as resp:
+                            local_file.write_bytes(resp.read())
+                        local_src = f"./{local_file.as_posix()}"
+                        item["thumbnail"] = local_src
+                        cache[src] = local_src
+                        print(f"thumbnail downloaded: {local_file.name}")
+                    except Exception as exc:
+                        print(f"thumbnail download failed: {src[:80]}... err={exc}")
             continue
         bucket, key = s3_loc
 
@@ -480,8 +516,10 @@ def export_to_pdf(html_path, output_pdf_path):
     with sync_playwright() as p:
         # 브라우저 실행 (백그라운드)
         browser = p.chromium.launch(args=["--allow-file-access-from-files", "--disable-web-security"])
-        page = browser.new_page()
-        
+        # device_scale_factor=2 로 래스터 이미지(썸네일)를 2배 해상도로 렌더링
+        context = browser.new_context(device_scale_factor=2)
+        page = context.new_page()
+
         # 1. HTML 파일 로드 (절대 경로 권장)
         import os
         file_url = f"file://{os.path.abspath(html_path)}"
