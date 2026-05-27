@@ -56,6 +56,9 @@ def run(ad_ids, fb_ad_account_id="", main_age="", main_gender="",
     date_start = start if start else db_start
     date_end = end if end else db_end
 
+    date_start = str(date_start)[:10]
+    date_end = str(date_end)[:10]
+
     end_dt = datetime.strptime(date_end, "%Y-%m-%d")
     actual_end = (end_dt - timedelta(days=end_dt.weekday())).strftime("%Y-%m-%d")
 

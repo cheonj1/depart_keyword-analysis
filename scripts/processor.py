@@ -644,6 +644,8 @@ VERB_ADJ_TAGS = {"VA", "VV"}
 ADVERB_TAGS = {"MAG", "MAJ"}
 VALID_KEYWORD_TAGS = NOUN_TAGS | VERB_ADJ_TAGS
 BLOCKED_KEYWORD_FORMS = {"포로"}
+# 동사 시제/양상 선어말어미로 시작하는 형태 — 한국어 명사가 될 수 없는 패턴
+_VERB_MORPHEME_PREFIXES = ("었", "았", "겠", "셨", "였", "었었", "았었")
 
 
 @lru_cache(maxsize=50000)
@@ -706,6 +708,50 @@ def _best_adverb_score(raw_text):
     return best_score
 
 
+@lru_cache(maxsize=50000)
+def _best_verb_adj_score(raw_text):
+    """
+    VV/VA 및 불규칙 활용(VV-R, VV-I, VA-R, VA-I 등) 포함한 최선 동사/형용사 점수 반환.
+    _keyword_pos_candidates는 1글자 동사 형태를 length 필터로 제거해 verb_adj_best가 None이 되므로,
+    이 함수로 별도 추적한다. (예: '입지' → '입'(VV-R)+지 분석의 -19.0 점수를 포착)
+    """
+    text = str(raw_text).strip()
+    if not text:
+        return None
+
+    best_score = None
+    for tokens, score in kiwi.analyze(text, top_n=5):
+        if not tokens:
+            continue
+        first = tokens[0]
+        ftag = str(first.tag)
+        if ftag.startswith("VV") or ftag.startswith("VA"):
+            cur = float(score)
+            if best_score is None or cur > best_score:
+                best_score = cur
+    return best_score
+
+
+@lru_cache(maxsize=50000)
+def _best_overall_score(raw_text):
+    """
+    kiwi.analyze top_n=5 분석 후보 중 가장 높은(낮은 음의) 점수를 반환.
+    NNG 명사 후보 점수가 최선 점수보다 5점 이상 낮으면 해당 단어를 명사로 보지 않는다.
+    (예: '스럽지' → 최선 -26.0(XSA-I+EF), NNG 후보 -34.9 → 차이 8.9 → 명사 차단)
+    """
+    text = str(raw_text).strip()
+    if not text:
+        return None
+    best = None
+    for tokens, score in kiwi.analyze(text, top_n=5):
+        if not tokens:
+            continue
+        cur = float(score)
+        if best is None or cur > best:
+            best = cur
+    return best
+
+
 def _is_blocked_keyword_form(form):
     token = str(form).strip()
     if not token:
@@ -718,11 +764,17 @@ def _looks_like_predicate_stem(form):
     """
     '강하'처럼 명사/용언 어간이 겹치는 경우를 분리하기 위한 보조 판별.
     form + '다'를 재분석해 동일 어형이 VA/VV로 해석되면 용언 어간으로 본다.
+
+    '조이다'처럼 '다' 앞에서 VV 대신 NNG+VCP(이다)로 분석되는 경우도 있으므로,
+    '고'/'면' 어미를 추가로 시도해 VV 어간을 더 정확히 검출한다.
+    (예: analyze('조이다') → 조(NNG)+이(VCP)+다 최상위  →  VV 미검출
+         analyze('조이고') → 조이(VV)+고(EC) 최상위  →  VV 검출 ✓)
     """
     stem = str(form).strip()
     if not stem:
         return False
 
+    # --- '다' 어미: 단일 VV/VA 체크 + XR/NNG/NNP+XSA/XSV 합성 패턴 체크 ---
     for tokens, _ in kiwi.analyze(f"{stem}다", top_n=3):
         if not tokens:
             continue
@@ -731,9 +783,21 @@ def _looks_like_predicate_stem(form):
         if first and first.form == stem and first.tag in VERB_ADJ_TAGS:
             return True
 
-        # 예: 강/XR + 하/XSA + 다/EF
+        # 예: 강/XR + 하/XSA + 다/EF  또는  코디/NNG + 하/XSV + 다/EF  또는  여유/NNG + 롭/XSA-I + 다/EF
         if len(tokens) >= 2 and tokens[0].form + tokens[1].form == stem:
-            if tokens[0].tag == "XR" and tokens[1].tag in {"XSA", "XSV"}:
+            if (tokens[0].tag in {"XR", "NNG", "NNP"}
+                    and (tokens[1].tag in {"XSA", "XSV"}
+                         or str(tokens[1].tag).startswith("XSA"))):
+                return True
+
+    # --- '고'/'면' 어미: '다' 분석에서 VV가 드러나지 않는 어간 보완 검출 ---
+    # '조이고' → 조이(VV)+고(EC) 최상위  /  '조이면' → top_n=3 내에 조이(VV)+면(EC) 존재
+    for ending in ("고", "면"):
+        for tokens, _ in kiwi.analyze(f"{stem}{ending}", top_n=3):
+            if not tokens:
+                continue
+            first = next((tok for tok in tokens if tok.tag in VALID_KEYWORD_TAGS), None)
+            if first and first.form == stem and first.tag in VERB_ADJ_TAGS:
                 return True
 
     return False
@@ -772,12 +836,44 @@ def _normalize_keyword_by_pos(text, pos_type='noun'):
         # 용언 후보가 더 우세하면 명사로 강제 변환하지 않는다.
         if verb_adj_best is not None and verb_adj_best[2] >= noun_best[2]:
             return None
+        # 부사 해석이 더 우세하면 명사로 분류하지 않는다 (예: 제대로→제대, 갑자기→갑자 오분류 방지)
+        adverb_score = _best_adverb_score(text)
+        if adverb_score is not None and adverb_score >= noun_best[2]:
+            return None
+        # VV-R 등 불규칙 동사 포함 동사/형용사 해석이 명사와 점수 차이 1.5 이내면 동사로 판단
+        # (예: '입지' → NNG -18.3 vs VV-R+EF -19.0, 차이 0.7 → 차단)
+        va_score = _best_verb_adj_score(text)
+        if va_score is not None and va_score >= noun_best[2] - 1.5:
+            return None
+        # 명사 후보 점수가 전체 최선 점수보다 5점 이상 낮으면 명사로 보지 않는다
+        # (예: '스럽지' → 최선 -26.0(XSA-I+EF), NNG -34.9 → 차이 8.9 → 차단)
+        best_overall = _best_overall_score(text)
+        if best_overall is not None and noun_best[2] < best_overall - 5.0:
+            return None
         noun_form = noun_best[0]
+        # 원문 전체가 명사 후보로 존재하면 부분 추출보다 우선
+        # (예: '아우터' → '아우'(NNG)+'터' 보다 낮은 점수의 '아우터'(NNG) 단일 분석을 선택)
+        if noun_form != text:
+            for form, tag, _ in candidates:
+                if form == text and tag in NOUN_TAGS:
+                    noun_form = text
+                    break
         if _is_blocked_keyword_form(noun_form):
+            return None
+        # 동사 시제 모핌으로 시작하는 형태는 명사가 아님 (예: 었기, 았는데)
+        if noun_form.startswith(_VERB_MORPHEME_PREFIXES):
             return None
         # 어간형(예: 강하)이 명사로 오인되는 케이스를 차단
         if _looks_like_predicate_stem(noun_form):
             return None
+        # 조사가 붙은 형태(예: 핏과)가 NNG로 오인된 경우를 차단
+        for toks, score in kiwi.analyze(noun_form, top_n=8):
+            if (len(toks) >= 2
+                    and str(toks[-1].tag).startswith("J")
+                    and noun_form.endswith(toks[-1].form)
+                    and len(noun_form) - len(toks[-1].form) >= 1
+                    and score >= noun_best[2] - 4.0):
+                return None
         return noun_form
 
     if pos_type == "verb_adj":
