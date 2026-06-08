@@ -34,31 +34,34 @@ def run():
     # ▼▼▼ 여기에 보고서를 생성할 ad_id 목록을 입력하세요 ▼▼▼
     config = {
         "ad_ids": [
-            5659,
-            6370,
-            6698,
-            6699,
-            6700,
-            7283,
-            7284,
-            7287,
-            7288,
-            7481,
-            7483,
-            7671,
-            7672,
-            7675,
-            7677
+            7386,
+            7388,
+            7580,
+            6797,
+            7578,
+            7577,
+            7576,
+            9789,
+            9791,
+            9798,
+            7387,
+            6631,
+            7385,
+            9797,
+            9812,
+            6799,
+            6801,
+            6634
         ],
         # fb_ad_account_id: Instagram 팔로워/오가닉 데이터를 포함하려면 입력
         # 불필요하면 빈 문자열("")로 두세요
-        "fb_ad_account_id": "act_629591912653973",
+        "fb_ad_account_id": "act_434227940322781",
         # 기간 강제 지정 (빈 문자열이면 ad_ids의 성과 데이터 기간 자동 사용)
-        "start": "2026-01-12",
-        "end": "2026-05-18",
+        "start": "2025-12-29",
+        "end": "2026-06-01",
         # 타겟 필터 (필요 없으면 빈 문자열)
-        "main_age": ['25-34', '35-44'],
-        "main_gender": "male",
+        "main_age": ['35-44', '45-54'],
+        "main_gender": "",
         "avoid_age": "",
         "avoid_gender": "",
         "currency": "",   # ""=원화, "dollar"=달러
@@ -98,7 +101,7 @@ def run():
     )
 
     report_path = "json_reports/integrated_report.json"
-    theme_color = "#1A1A1A"
+    theme_color = "#FF5600"
 
     report_json = _load_report(report_path)
     _apply_display_predicate_suffix(report_json)

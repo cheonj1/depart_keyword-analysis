@@ -775,7 +775,9 @@ def _looks_like_predicate_stem(form):
         return False
 
     # --- '다' 어미: 단일 VV/VA 체크 + XR/NNG/NNP+XSA/XSV 합성 패턴 체크 ---
-    for tokens, _ in kiwi.analyze(f"{stem}다", top_n=3):
+    # top_n=1: 최선 해석만 신뢰. 하위 순위의 VA 해석으로 인한 오분류 방지
+    # (예: '기차다' → 1위 NNG+VCP+EF 이므로 명사. 2위 VA는 무시해야 함)
+    for tokens, _ in kiwi.analyze(f"{stem}다", top_n=1):
         if not tokens:
             continue
 
@@ -791,9 +793,9 @@ def _looks_like_predicate_stem(form):
                 return True
 
     # --- '고'/'면' 어미: '다' 분석에서 VV가 드러나지 않는 어간 보완 검출 ---
-    # '조이고' → 조이(VV)+고(EC) 최상위  /  '조이면' → top_n=3 내에 조이(VV)+면(EC) 존재
+    # '조이고' → 조이(VV)+고(EC) 최상위  /  top_n=1: 최선 해석만 신뢰
     for ending in ("고", "면"):
-        for tokens, _ in kiwi.analyze(f"{stem}{ending}", top_n=3):
+        for tokens, _ in kiwi.analyze(f"{stem}{ending}", top_n=1):
             if not tokens:
                 continue
             first = next((tok for tok in tokens if tok.tag in VALID_KEYWORD_TAGS), None)
