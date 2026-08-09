@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ report.title }} | {{ report.client }}</title>
+  <link rel="stylesheet" href="{{ css_path or 'report.css' }}">
+  {% if theme %}
+  <style>
+    :root {
+      --theme-color: {{ theme.base }};
+      --theme-dark-color: {{ theme.dark }};
+      --theme-header-color: {{ theme.header }};
+      --theme-title-color: {{ theme.title }};
+      --highlight-main-color: {{ theme.highlight_main }};
+      --highlight-avoid-color: {{ theme.highlight_avoid }};
+      --cover-text-color: {{ theme.cover_text }};
+    }
+  </style>
+  {% endif %}
+</head>
+
+<body>
+
+  {# =========================
+     Macros (template.html과 동일 — 계정 성과 없이 키워드 리포트만 렌더링)
+     ========================= #}
+
+  {% macro page_header(section_title='') %}
+  <header class="page-header">
+    <div class="page-header__left">
+      {% if section_title %}
+        <span class="page-header__section">{{ section_title }}</span>
+      {% endif %}
+    </div>
+    <div class="page-header__right">
+      <span class="page-header__brand">
+        {{ report.client }} {{ report.quarter_label }} 키워드 분석
+      </span>
+    </div>
+  </header>
+  {% endmacro %}
+
+  {% macro big_title(title, subtitle=None) %}
+  <div class="title-block">
+    <h1 class="title-block__title">{{ title | safe }}</h1>
+    {% if subtitle %}
+      <div class="title-block__subtitle">{{ subtitle }}</div>
+    {% endif %}
+  </div>
+  {% endmacro %}
+
+  {% macro figure(img_src=None, caption=None, alt='', class_name='') %}
+  <figure class="figure{% if class_name %} {{ class_name }}{% endif %}">
+    {% if img_src %}
+      {% set _img = img_src | trim %}
+      {% if _img.startswith('<svg') %}
+        <div class="figure__svg">{{ img_src | safe }}</div>
+      {% else %}
+        <img class="figure__img" src="{{ img_src }}" alt="{{ alt }}">
+      {% endif %}
+    {% else %}
+      <div class="figure__placeholder">CHART / IMAGE</div>
+    {% endif %}
+    {% if caption %}
+      <figcaption class="figure__caption">{{ caption }}</figcaption>
+    {% endif %}
+  </figure>
+  {% endmacro %}
+
+  {% macro simple_table(headers, rows, footnote=None, title=None, span_class='span-12') %}
+  <div class="{{ span_class }}">
+    {% if title %}
+      <div class="table-title">{{ title }}</div>
+    {% endif %}
+    <table class="table">
+      <thead>
+        <tr>
+          {% for h in headers %}
+            <th>{{ h | safe }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr>
+            {% for c in r %}
+              <td>{{ c }}</td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if footnote %}
+      <div class="footnote">{{ footnote }}</div>
+    {% endif %}
+  </div>
+  {% endmacro %}
+
+
+
+  {# =========================================================
+     (1) Cover
+     ========================================================= #}
+  <section class="page page--cover">
+    <div class="cover" style="writing-mode:horizontal-tb; text-orientation:mixed;">
+      <div class="cover__client">{{ report.quarter_label }}</div>
+      <div class="cover__title">
+        {% if report.year and report.quarter_label and report.quarter_label.startswith(report.year) %}
+          {{ report.client }} 키워드 분석 보고서
+        {% elif report.year and report.quarter_label %}
+          {{ report.year }} {{ report.client }} 키워드 분석 보고서
+        {% else %}
+          {{ report.client }} 키워드 분석 보고서
+        {% endif %}
+      </div>
+      <div class="cover__date">{{ report.generated_at }}</div>
+      {% if report.brand %}
+        <div class="cover__brand">{{ report.brand }}</div>
+      {% endif %}
+    </div>
+  </section>
+
+
+
+  {# =========================================================
+     (2) Overview — 계정 성과 없이 분석 범위만 표시
+     ========================================================= #}
+  <section class="page page--overview">
+    {{ page_header('분석 개요') }}
+    {{ big_title('분석 대상 데이터') }}
+
+    <div class="page-body page-body--overview">
+      <div class="span-12 overview-kpi-row">
+        <div class="overview-kpi">
+          <div class="overview-kpi__value">{{ report.ads_count or '-' }}</div>
+          <div class="overview-kpi__label">광고</div>
+        </div>
+        <div class="overview-kpi">
+          <div class="overview-kpi__value">{{ report.keywords_count or '-' }}</div>
+          <div class="overview-kpi__label">키워드</div>
+        </div>
+      </div>
+
+      <div class="span-12 overview-periods">
+        <div class="overview-period">
+          <span class="overview-period__label">분석 기간</span>
+          <span class="overview-period__value">{{ report.period_label or '-' }}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+
+  {# =========================================================
+     (3) Keywords - Overall Top 10
+     ========================================================= #}
+  <section class="page">
+    {{ page_header('타겟별 키워드') }}
+    {{ big_title('<span class="title-target-highlight title-target-highlight--overall">전체 연령/성별</span><br>키워드별 CTR 상위 10개') }}
+
+    <div class="page-body keyword-quad keyword-quad--overall-bottom">
+      {% if charts.keyword_overall_top_noun is defined or charts.keyword_overall_top_verb_adj is defined %}
+        {% if charts.keyword_overall_top_noun is defined %}
+          <div class="span-3">
+            {{ figure(charts.keyword_overall_top_noun, alt='keyword overall top (noun)') }}
+          </div>
+        {% endif %}
+        {% if charts.keyword_overall_top_verb_adj is defined %}
+          <div class="span-3">
+            {{ figure(charts.keyword_overall_top_verb_adj, alt='keyword overall top (verb/adj)') }}
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="span-3">
+          {{ figure(charts.keyword_overall_top, alt='keyword overall top') }}
+        </div>
+      {% endif %}
+
+      {% if keywords.overall_top_tables is defined and keywords.overall_top_tables %}
+        {% for t in keywords.overall_top_tables[:2] %}
+          {{ simple_table(t.headers, t.rows, t.footnote, span_class='span-3') }}
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    {% if keywords.overall_top_note %}
+      <div class="page-note page-note--left">{{ keywords.overall_top_note }}</div>
+    {% endif %}
+  </section>
+
+
+
+  {# =========================================================
+     (4) Keywords - Overall Combo Pages
+     ========================================================= #}
+  {% for p in keywords.overall_combo_pages %}
+    {% set grouped_cards = (p.cards or []) | batch(3) %}
+    {% for card_group in grouped_cards %}
+      <section class="page page--combo">
+        {{ page_header('타겟별 키워드') }}
+        {{ big_title('<span class="title-target-highlight title-target-highlight--overall">전체 연령/성별</span><br>CTR 상위 키워드 조합 + 함께 쓰인 단어') }}
+
+        <div class="page-body combo-page-body">
+          {% for card in card_group %}
+            {% if card %}
+              <div class="span-4">
+                <div class="combo-card">
+                  <div class="combo-card__title">{{ card.title }}</div>
+                  <div class="combo-card__sub">{{ card.sub }}</div>
+                  <div class="combo-card__viz">
+                    {% if card.image %}
+                      {{ card.image | safe }}
+                    {% else %}
+                      <div class="combo-placeholder">VIZ</div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+          {% endfor %}
+          {% if p.note %}
+            <div class="span-12 page-note page-note--left combo-page-note">{{ p.note }}</div>
+          {% endif %}
+        </div>
+      </section>
+    {% endfor %}
+  {% endfor %}
+
+
+
+  {# =========================================================
+     (5) Keywords - Overall Bottom 10
+     ========================================================= #}
+  <section class="page">
+    {{ page_header('타겟별 키워드') }}
+    {{ big_title('<span class="title-target-highlight title-target-highlight--overall">전체 연령/성별</span><br>키워드별 CTR 하위 10개') }}
+
+    <div class="page-body keyword-quad keyword-quad--overall-bottom">
+      {% if charts.keyword_overall_bottom_noun is defined or charts.keyword_overall_bottom_verb_adj is defined %}
+        {% if charts.keyword_overall_bottom_noun is defined %}
+          <div class="span-3">
+            {{ figure(charts.keyword_overall_bottom_noun, alt='keyword overall bottom (noun)') }}
+          </div>
+        {% endif %}
+        {% if charts.keyword_overall_bottom_verb_adj is defined %}
+          <div class="span-3">
+            {{ figure(charts.keyword_overall_bottom_verb_adj, alt='keyword overall bottom (verb/adj)') }}
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="span-3">
+          {{ figure(charts.keyword_overall_bottom, alt='keyword overall bottom') }}
+        </div>
+      {% endif %}
+
+      {% if keywords.overall_bottom_tables is defined and keywords.overall_bottom_tables %}
+        {% for t in keywords.overall_bottom_tables[:2] %}
+          {{ simple_table(t.headers, t.rows, t.footnote, span_class='span-3') }}
+        {% endfor %}
+      {% endif %}
+    </div>
+
+    {% if keywords.overall_bottom_note %}
+      <div class="page-note page-note--left">{{ keywords.overall_bottom_note }}</div>
+    {% endif %}
+  </section>
+
+
+
+  {# =========================================================
+     (6) Main target keywords (optional — 예: 성별/연령 세그먼트)
+     ========================================================= #}
+  {% if keywords.main_target %}
+    <section class="page">
+      {{ page_header('타겟별 키워드 - 메인 타겟') }}
+      {{ big_title('<span class="title-target-highlight title-target-highlight--main">' ~ keywords.main_target.title ~ '</span><br>키워드별 CTR 상위 10개') }}
+
+      <div class="page-body keyword-quad">
+        {% if charts.keyword_main_top_noun is defined or charts.keyword_main_top_verb_adj is defined %}
+          {% if charts.keyword_main_top_noun is defined %}
+            <div class="span-3">
+              {{ figure(charts.keyword_main_top_noun, alt='keyword main top (noun)') }}
+            </div>
+          {% endif %}
+          {% if charts.keyword_main_top_verb_adj is defined %}
+            <div class="span-3">
+              {{ figure(charts.keyword_main_top_verb_adj, alt='keyword main top (verb/adj)') }}
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="span-3">
+            {{ figure(charts.keyword_main_top, alt='keyword main top') }}
+          </div>
+        {% endif %}
+
+        {% if keywords.main_top_tables is defined and keywords.main_top_tables %}
+          {% for t in keywords.main_top_tables[:2] %}
+            {{ simple_table(t.headers, t.rows, t.footnote, span_class='span-3') }}
+          {% endfor %}
+        {% endif %}
+      </div>
+    </section>
+
+    {% for p in keywords.main_combo_pages %}
+      {% set grouped_cards = (p.cards or []) | batch(3) %}
+      {% for card_group in grouped_cards %}
+        <section class="page page--combo">
+          {{ page_header('타겟별 키워드 - 메인 타겟') }}
+          {{ big_title('<span class="title-target-highlight title-target-highlight--main">' ~ keywords.main_target.title ~ '</span><br>CTR 상위 키워드 조합 + 함께 쓰인 단어') }}
+
+          <div class="page-body combo-page-body">
+            {% for card in card_group %}
+              {% if card %}
+                <div class="span-4">
+                  <div class="combo-card">
+                    <div class="combo-card__title">{{ card.title }}</div>
+                    <div class="combo-card__sub">{{ card.sub }}</div>
+                    <div class="combo-card__viz">
+                      {% if card.image %}
+                        {{ card.image | safe }}
+                      {% else %}
+                        <div class="combo-placeholder">VIZ</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+            {% endfor %}
+            {% if p.note %}
+              <div class="span-12 page-note page-note--left combo-page-note">{{ p.note }}</div>
+            {% endif %}
+          </div>
+        </section>
+      {% endfor %}
+    {% endfor %}
+
+    <section class="page">
+      {{ page_header('타겟별 키워드 - 메인 타겟') }}
+      {{ big_title('<span class="title-target-highlight title-target-highlight--main">' ~ keywords.main_target.title ~ '</span><br>키워드별 CTR 하위 10개') }}
+
+      <div class="page-body keyword-quad">
+        {% if charts.keyword_main_bottom_noun is defined or charts.keyword_main_bottom_verb_adj is defined %}
+          {% if charts.keyword_main_bottom_noun is defined %}
+            <div class="span-3">
+              {{ figure(charts.keyword_main_bottom_noun, alt='keyword main bottom (noun)') }}
+            </div>
+          {% endif %}
+          {% if charts.keyword_main_bottom_verb_adj is defined %}
+            <div class="span-3">
+              {{ figure(charts.keyword_main_bottom_verb_adj, alt='keyword main bottom (verb/adj)') }}
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="span-3">
+            {{ figure(charts.keyword_main_bottom, alt='keyword main bottom') }}
+          </div>
+        {% endif %}
+
+        {% if keywords.main_bottom_tables is defined and keywords.main_bottom_tables %}
+          {% for t in keywords.main_bottom_tables[:2] %}
+            {{ simple_table(t.headers, t.rows, t.footnote, span_class='span-3') }}
+          {% endfor %}
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
+
+
+  {# =========================================================
+     (7) Avoiding target keywords (optional — 예: 성별/연령 세그먼트)
+     ========================================================= #}
+  {% if keywords.avoid_target %}
+    <section class="page">
+      {{ page_header('타겟별 키워드 - 기피 타겟') }}
+      {{ big_title('<span class="title-target-highlight title-target-highlight--avoid">' ~ keywords.avoid_target.title ~ '</span><br>키워드별 CTR 상위 10개') }}
+
+      <div class="page-body keyword-quad">
+        {% if charts.keyword_avoid_top_noun is defined or charts.keyword_avoid_top_verb_adj is defined %}
+          {% if charts.keyword_avoid_top_noun is defined %}
+            <div class="span-3">
+              {{ figure(charts.keyword_avoid_top_noun, alt='keyword avoid top (noun)') }}
+            </div>
+          {% endif %}
+          {% if charts.keyword_avoid_top_verb_adj is defined %}
+            <div class="span-3">
+              {{ figure(charts.keyword_avoid_top_verb_adj, alt='keyword avoid top (verb/adj)') }}
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="span-3">
+            {{ figure(charts.keyword_avoid_top, alt='keyword avoid top') }}
+          </div>
+        {% endif %}
+
+        {% if keywords.avoid_top_tables is defined and keywords.avoid_top_tables %}
+          {% for t in keywords.avoid_top_tables[:2] %}
+            {{ simple_table(t.headers, t.rows, t.footnote, span_class='span-3') }}
+          {% endfor %}
+        {% endif %}
+      </div>
+    </section>
+
+    {% for p in keywords.avoid_combo_pages %}
+      {% set grouped_cards = (p.cards or []) | batch(3) %}
+      {% for card_group in grouped_cards %}
+        <section class="page page--combo">
+          {{ page_header('타겟별 키워드 - 기피 타겟') }}
+          {{ big_title('<span class="title-target-highlight title-target-highlight--avoid">' ~ keywords.avoid_target.title ~ '</span><br>CTR 상위 키워드 조합 + 함께 쓰인 단어') }}
+
+          <div class="page-body combo-page-body">
+            {% for card in card_group %}
+              {% if card %}
+                <div class="span-4">
+                  <div class="combo-card">
+                    <div class="combo-card__title">{{ card.title }}</div>
+                    <div class="combo-card__sub">{{ card.sub }}</div>
+                    <div class="combo-card__viz">
+                      {% if card.image %}
+                        {{ card.image | safe }}
+                      {% else %}
+                        <div class="combo-placeholder">VIZ</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+            {% endfor %}
+            {% if p.note %}
+              <div class="span-12 page-note page-note--left combo-page-note">{{ p.note }}</div>
+            {% endif %}
+          </div>
+        </section>
+      {% endfor %}
+    {% endfor %}
+
+    <section class="page">
+      {{ page_header('타겟별 키워드 - 기피 타겟') }}
+      {{ big_title('<span class="title-target-highlight title-target-highlight--avoid">' ~ keywords.avoid_target.title ~ '</span><br>키워드별 CTR 하위 10개') }}
+
+      <div class="page-body keyword-quad">
+        {% if charts.keyword_avoid_bottom_noun is defined or charts.keyword_avoid_bottom_verb_adj is defined %}
+          {% if charts.keyword_avoid_bottom_noun is defined %}
+            <div class="span-3">
+              {{ figure(charts.keyword_avoid_bottom_noun, alt='keyword avoid bottom (noun)') }}
+            </div>
+          {% endif %}
+          {% if charts.keyword_avoid_bottom_verb_adj is defined %}
+            <div class="span-3">
+              {{ figure(charts.keyword_avoid_bottom_verb_adj, alt='keyword avoid bottom (verb/adj)') }}
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="span-3">
+            {{ figure(charts.keyword_avoid_bottom, alt='keyword avoid bottom') }}
+          </div>
+        {% endif %}
+
+        {% if keywords.avoid_bottom_tables is defined and keywords.avoid_bottom_tables %}
+          {% for t in keywords.avoid_bottom_tables[:2] %}
+            {{ simple_table(t.headers, t.rows, t.footnote, span_class='span-3') }}
+          {% endfor %}
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
+
+  {# ========================= EOD Page ========================= #}
+  <section class="page page--cover">
+    <div class="cover cover--eod" style="writing-mode:horizontal-tb; text-orientation:mixed; justify-content:center; align-items:center;">
+      <div class="cover__eod">EOD</div>
+    </div>
+  </section>
+
+
+</body>
+</html>

@@ -1,8 +1,14 @@
+import warnings
+import logging
+warnings.filterwarnings("ignore", category=UserWarning)
+logging.getLogger('matplotlib.font_manager').setLevel(logging.CRITICAL)
+
 # scripts/visualizer.py
 import io
 import os
 import colorsys
 from typing import Any, Dict, List, Optional
+
 
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 os.makedirs(os.environ["MPLCONFIGDIR"], exist_ok=True)
@@ -16,6 +22,9 @@ from matplotlib.ticker import FuncFormatter
 import numpy as np
 import pandas as pd
 import base64
+import math
+
+
 
 # 경고 끄기
 plt.rcParams["figure.max_open_warning"] = 100
@@ -23,24 +32,19 @@ plt.rcParams["figure.max_open_warning"] = 100
 DEFAULT_THEME = "#4e73df"
 
 
-def _configure_matplotlib_fonts() -> None:
-    import matplotlib.font_manager as fm
 
-    available = {f.name for f in fm.fontManager.ttflist}
+def _configure_matplotlib_fonts() -> None:
+    # Prefer Korean-capable fonts to avoid broken glyphs in SVG.
     preferred = [
         "Apple SD Gothic Neo",
-        "Nanum Gothic",
-        "Pretendard",
         "Noto Sans KR",
         "Malgun Gothic",
+        #"Arial Unicode MS",
         "DejaVu Sans",
     ]
-    matched = [f for f in preferred if f in available]
-    if not matched:
-        matched = ["DejaVu Sans"]
-
-    plt.rcParams["font.family"] = matched
+    plt.rcParams["font.family"] = preferred
     plt.rcParams["axes.unicode_minus"] = False
+    # Embed glyphs as paths for consistent rendering in SVG/PDF.
     plt.rcParams["svg.fonttype"] = "path"
 
 
@@ -141,14 +145,7 @@ def is_dark_color(hex_color: str) -> bool:
     return relative_luminance(hex_color) < 0.5
 
 
-_svg_counter = 0
-
-
 def _fig_to_svg(fig) -> str:
-    global _svg_counter
-    _svg_counter += 1
-    prefix = f"svg{_svg_counter}_"
-
     buf = io.StringIO()
     fig.savefig(buf, format="svg", bbox_inches="tight")
     plt.close(fig)
@@ -156,18 +153,6 @@ def _fig_to_svg(fig) -> str:
     idx = svg.find("<svg")
     if idx != -1:
         svg = svg[idx:]
-
-    import re
-
-    id_map: dict[str, str] = {}
-    for m in re.finditer(r'\bid="([^"]+)"', svg):
-        old_id = m.group(1)
-        id_map[old_id] = prefix + old_id
-
-    for old_id, new_id in id_map.items():
-        svg = svg.replace(f'id="{old_id}"', f'id="{new_id}"')
-        svg = svg.replace(f'href="#{old_id}"', f'href="#{new_id}"')
-        svg = svg.replace(f'xlink:href="#{old_id}"', f'xlink:href="#{new_id}"')
 
     return svg
 
@@ -289,8 +274,16 @@ def render_line_chart(dataset: Dict[str, Any], color_map: Dict[str, Any], compac
     labels = dataset.get("labels") or []
     series = dataset.get("series") or []
 
-    if not labels or not series or len(labels) <= 1:
+    if not labels or not series:
         return ""
+
+    title_text = str(dataset.get("title") or "").strip()
+    show_average = dataset.get("show_average", False)
+
+    # 평균선 표시 대상 차트
+    if title_text in [ "오가닉 조회수 추이 (주별)", "프로필 방문 수(주별)"] :
+        show_average = True
+    # =========================================================
 
     x = list(range(len(labels)))
     fig, ax = plt.subplots(figsize=(8.0, 4.4))
@@ -299,8 +292,6 @@ def render_line_chart(dataset: Dict[str, Any], color_map: Dict[str, Any], compac
     plotted_values: List[float] = []
     show_legend = bool(dataset.get("show_legend"))
 
-    # 제목용 라벨 계산
-    title_text = str(dataset.get("title") or "").strip()
     chart_label = "주별" if "주별" in title_text else "월별" if "월별" in title_text else None
 
     label_map = {
@@ -363,83 +354,82 @@ def render_line_chart(dataset: Dict[str, Any], color_map: Dict[str, Any], compac
             if x_val not in label_idx_set:
                 continue
 
-            # ===== 라벨 겹침 방지 =====
             if last_labeled_x is not None and last_labeled_y is not None:
                 x_gap = abs(x_val - last_labeled_x)
                 y_gap = abs(y_num - last_labeled_y)
 
                 if x_gap <= 2 and y_gap < series_y_span * 0.12:
                     continue
-            
 
-            # 광고비/매출 첫 값 겹침 방지
-            for idx, (x_val, y_num) in enumerate(zip(x_values, data)):
-                if pd.isna(y_num):
-                    continue
+            base_offset = 6
+            va = "bottom"
 
-                y_num = float(y_num)
-                plotted_values.append(y_num)
-                if x_val not in label_idx_set:
-                    continue
-
-                # 기본값
-                if show_legend:
-                    if series_name == "spend":
-                        base_offset = 6
-                        va = "bottom"
-                    elif series_name == "revenue":
-                        base_offset = 6
-                        va = "bottom"
-                    else:
-                        base_offset = 6
-                        va = "bottom"
-                else:
+            if idx == 0 and show_legend:
+                if series_name == "spend":
                     base_offset = 6
                     va = "bottom"
+                elif series_name == "revenue":
+                    base_offset = 17
+                    va = "bottom"
 
-                # 첫 번째 값만 강제 위치
-                if idx == 0:
-                    if series_name == "spend":
-                        base_offset = 6   # 광고비는 아래
-                        va = "bottom"
-                    elif series_name == "revenue":
-                        base_offset = 17    # 매출은 위
-                        va = "bottom"
+            xytext = (0, base_offset)
+            ha = "center"
 
-                xytext = (0, base_offset)
-                ha = "center"
+            ax.annotate(
+                f"{_format_chart_value(y_num)}{unit}" if unit else _format_chart_value(y_num),
+                (x_val, y_num),
+                textcoords="offset points",
+                xytext=xytext,
+                ha=ha,
+                va=va,
+                fontsize=8,
+                color=color,
+                clip_on=False,
+                bbox=dict(
+                    boxstyle="round,pad=0.15",
+                    facecolor="white",
+                    edgecolor="none",
+                    alpha=0.7
+                ),
+            )
 
-                ax.annotate(
-                    f"{_format_chart_value(y_num)}{unit}" if unit else _format_chart_value(y_num),
-                    (x_val, y_num),
-                    textcoords="offset points",
-                    xytext=xytext,
-                    ha=ha,
-                    va=va,
-                    fontsize=8,
-                    color=color,
-                    clip_on=False,
-                    bbox=dict(
-                        boxstyle="round,pad=0.15",
-                        facecolor="white",
-                        edgecolor="none",
-                        alpha=0.85
-                    ),
-                )
+            last_labeled_x = x_val
+            last_labeled_y = y_num
 
-                last_labeled_x = x_val
-                last_labeled_y = y_num
-            
     if not plotted_values:
         return ""
 
+   # 이전 분기 평균선 정보 (Y축 범위 계산 + 평균선 그리기 양쪽에서 공통 사용)
+    prev_quarter_avg = dataset.get("prev_quarter_avg")
+    prev_avg_val = None
+    if prev_quarter_avg and prev_quarter_avg.get("avg") is not None:
+        prev_avg_val = float(prev_quarter_avg["avg"])
+
     # Y축 범위 설정
-    y_min, y_max = min(plotted_values), max(plotted_values)
-    y_span = y_max - y_min
+    data_min, data_max = min(plotted_values), max(plotted_values)
+
+    # 이전 분기 평균이 주별 데이터 범위를 벗어나면 y축 범위 계산에 포함
+    range_min = min(data_min, prev_avg_val) if prev_avg_val is not None else data_min
+    range_max = max(data_max, prev_avg_val) if prev_avg_val is not None else data_max
+
+    y_span = range_max - range_min
     y_pad = max(y_span * 0.22, 0.3)
 
-    y_low = 0 if unit == "%" else y_min - y_pad * 0.2
-    y_high = y_max + y_pad
+    if unit == "%":
+        # CTR처럼 변동폭이 작은 % 지표는 0부터 시작하면 변화량이 잘 보이지 않으므로,
+        # 주별 데이터 최솟값이 1.5%를 초과하면 0.5 단위로 내림한 값을 시작값으로 사용한다.
+        if data_min > 1.5:
+            y_low = max(0.0, math.floor((data_min - 0.5) * 2) / 2)
+        else:
+            y_low = 0.0
+
+        # 이전 분기 평균이 시작값보다 낮으면, 평균선이 가려지지 않도록 시작값을 더 낮춘다.
+        if prev_avg_val is not None and prev_avg_val < y_low:
+            y_low = max(0.0, math.floor((prev_avg_val - 0.5) * 2) / 2)
+    else:
+        y_low = range_min - y_pad * 0.2
+
+    y_high = range_max + y_pad
 
     if abs(y_high - y_low) < 1e-12:
         y_high = y_low + 1.0
@@ -492,9 +482,7 @@ def render_line_chart(dataset: Dict[str, Any], color_map: Dict[str, Any], compac
                 zorder=1.5,
             )
 
-    # 스타일
     ax.set_xticks([])
-
     ax.yaxis.set_major_formatter(
         FuncFormatter(
             lambda v, _: f"{int(round(v)):,}" if abs(v - round(v)) < 1e-9 else f"{v:,.2f}"
@@ -504,7 +492,6 @@ def render_line_chart(dataset: Dict[str, Any], color_map: Dict[str, Any], compac
     _style_axes(ax, color_map, grid_axis=None)
     ax.tick_params(axis="x", length=0, labelbottom=False)
 
-    # 제목
     if chart_label:
         ax.set_title(
             chart_label,
@@ -515,7 +502,6 @@ def render_line_chart(dataset: Dict[str, Any], color_map: Dict[str, Any], compac
             y=1.08
         )
 
-    # 범례
     if show_legend:
         ax.legend(
             loc="upper right",
@@ -525,7 +511,104 @@ def render_line_chart(dataset: Dict[str, Any], color_map: Dict[str, Any], compac
             fontsize=9,
         )
 
-    # 위치 조정
+    # ================= [최종 평균선 그리기] =================
+    if show_average:
+        all_vals = [float(v) for s in series for v in (s.get("data") or []) if pd.notna(v)]
+        if all_vals:
+            avg_val = sum(all_vals) / len(all_vals)
+
+            # 1. 점선 그리기 (빨간색 - 이번분기)
+            ax.axhline(y=avg_val, color="#e53935", linestyle="--", linewidth=1.5, zorder=999)
+
+            # 현재 기간 평균 라벨: "{연도}년 {분기}분기 평균" 형식으로 통일
+            current_quarter = dataset.get("current_quarter")
+            if current_quarter and current_quarter.get("year") and current_quarter.get("quarter"):
+                cur_label = f"{current_quarter['year']}년 {current_quarter['quarter']}분기 평균"
+            else:
+                # current_quarter 메타가 없는 차트를 위한 기존 방식 유지
+                if labels and len(labels) >= 2:
+                    period_text = f"{str(labels[0])} ~ {str(labels[-1])}"
+                else:
+                    period_text = "분석 기간 전체"
+                cur_label = f"{period_text} 평균"
+
+            # 두 평균선이 가까우면 라벨이 겹치므로, 위쪽 선은 선 위로 / 아래쪽 선은 선 아래로 라벨을 벌린다
+            AVG_LABEL_GAP_PT = 5
+            AVG_LABEL_BBOX = dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0.7)
+            has_prev = prev_avg_val is not None
+            close = has_prev and abs(avg_val - prev_avg_val) < (y_high - y_low) * 0.15
+
+            if close and prev_avg_val > avg_val:
+                cur_va, cur_offset = "top", -AVG_LABEL_GAP_PT
+            else:
+                cur_va, cur_offset = "bottom", AVG_LABEL_GAP_PT
+
+            # 2. 텍스트 라벨 (왼쪽 고정, 빨간 글씨) — 점선과 간격을 두고, 박스는 텍스트에 맞게 fit
+            ax.annotate(
+                f"{cur_label}: {avg_val:,.1f}{unit}",
+                xy=(0.02, avg_val),
+                xycoords=ax.get_yaxis_transform(),
+                textcoords="offset points",
+                xytext=(0, cur_offset),
+                color="#e53935",
+                fontsize=7.5,
+                fontweight="bold",
+                ha="left", va=cur_va,
+                bbox=AVG_LABEL_BBOX,
+                zorder=1000,
+            )
+
+            # 3. 차트 하단 평균선 기준 설명
+            ax.text(
+                0.01, -0.13,
+                f"----- : {cur_label}",
+                transform=ax.transAxes,
+                ha='left', va='top',
+                fontsize=10,
+                color="#e53935",
+                clip_on=False,
+            )
+
+            # 4. 이전 분기 평균선 (회색)
+            if has_prev:
+                prev_year = prev_quarter_avg.get("year")
+                prev_quarter = prev_quarter_avg.get("quarter")
+
+                # 4-1. 점선 그리기
+                ax.axhline(y=prev_avg_val, color="#858585", linestyle="--", linewidth=1.5, zorder=998)
+
+                if close and prev_avg_val <= avg_val:
+                    prev_va, prev_offset = "top", -AVG_LABEL_GAP_PT
+                else:
+                    prev_va, prev_offset = "bottom", AVG_LABEL_GAP_PT
+
+                # 4-2. 텍스트 라벨
+                ax.annotate(
+                    f"{prev_year}년 {prev_quarter}분기 평균: {prev_avg_val:,.1f}{unit}",
+                    xy=(0.02, prev_avg_val),
+                    xycoords=ax.get_yaxis_transform(),
+                    textcoords="offset points",
+                    xytext=(0, prev_offset),
+                    color="#858585",
+                    fontsize=7.5,
+                    fontweight="bold",
+                    ha="left", va=prev_va,
+                    bbox=AVG_LABEL_BBOX,
+                    zorder=997,
+                )
+
+                # 4-3. 차트 하단 설명
+                ax.text(
+                    0.01, -0.24,
+                    f"----- : {prev_year}년 {prev_quarter}분기 평균",
+                    transform=ax.transAxes,
+                    ha='left', va='top',
+                    fontsize=10,
+                    color="#858585",
+                    clip_on=False,
+                )
+    # =======================================================
+
     return _fig_to_svg(fig)
 
 def render_bar_h_chart(
@@ -1013,7 +1096,7 @@ def render_purchase_pie_chart(rows: List[Dict[str, Any]], color_map: Dict[str, A
 
     df = df.copy()
     df["purchases"] = pd.to_numeric(df["purchases"], errors="coerce").fillna(0)
-    df = df[df["purchases"] > 0]
+    df = df[df["purchases"] > 0].sort_values("purchases", ascending=False)
     if df.empty:
         return ""
 
@@ -1023,10 +1106,18 @@ def render_purchase_pie_chart(rows: List[Dict[str, Any]], color_map: Dict[str, A
             return "여성"
         if g == "male":
             return "남성"
+        if g == "unknown":
+            return "성별미상"
         return str(g)
 
+    def _age_label(a):
+        a_str = str(a).strip()
+        if a_str.lower() == "unknown":
+            return "연령미상"
+        return a_str
+
     labels = [
-        f"{str(row['age']).strip()} {_gender_label(row['gender'])}"
+        f"{_age_label(row['age'])} {_gender_label(row['gender'])}"
         for _, row in df.iterrows()
     ]
     values = df["purchases"].tolist()
@@ -1178,20 +1269,27 @@ def render_follower_age_gender_stacked_barh_chart(chart_data, color_map):
     if not labels or not series:
         return ""
 
+    COLOR_MALE    = "#ADCAF8"   # 하늘색
+    COLOR_FEMALE  = "#FCC2C7"   # 분홍색
+    COLOR_KNOWN   = "#AEC69F"   # 초록색
+    COLOR_UNKNOWN = "#B0B0B0"   # 회색
+
     # 시리즈 이름/데이터 정리
     parsed = []
+    NAME_MAP = {
+        "male": ("남성", COLOR_MALE), "남성": ("남성", COLOR_MALE),
+        "female": ("여성", COLOR_FEMALE), "여성": ("여성", COLOR_FEMALE),
+        "unknown": ("알 수 없음", COLOR_UNKNOWN), "알 수 없음": ("알 수 없음", COLOR_UNKNOWN),
+        "known": ("남/여 전체", COLOR_KNOWN), "남/여 전체": ("남/여 전체", COLOR_KNOWN),
+    }
+
     for s in series:
         name = str(s.get("name", "")).strip().lower()
         data = pd.to_numeric(pd.Series(s.get("data", [])), errors="coerce").fillna(0).tolist()
 
-        if name in ["male", "남성"]:
-            parsed.append(("남성", data, color_map["base"], "white"))
-        elif name in ["female", "여성"]:
-            parsed.append(("여성", data, color_map["lighter"], "#252525"))
-        elif name in ["unknown", "알 수 없음"]:
-            parsed.append(("알 수 없음", data, color_map["dark"], "white"))
-        elif name in ["known", "남/여 전체"]:
-            parsed.append(("남/여 전체", data, color_map["lighter"], "#252525"))
+        if name in NAME_MAP:
+            label, color = NAME_MAP[name]
+            parsed.append((label, data, color, "#252525"))
 
     if not parsed:
         return ""
@@ -1276,17 +1374,22 @@ def render_follower_gender_doughnut_chart(chart_data, color_map):
 
     values = [float(v) for v in values]
 
+    COLOR_MALE    = "#ADCAF8"   # 하늘색
+    COLOR_FEMALE  = "#FCC2C7"   # 분홍색
+    COLOR_KNOWN   = "#AEC69F"   # 초록색
+    COLOR_UNKNOWN = "#B0B0B0"   # 회색
+
     def _pick_color(label: str) -> str:
         label = str(label).strip()
-        if label == "여성":
-            return color_map["lighter"]
-        elif label == "남성":
-            return color_map["base"]
-        elif label in ["남/여 전체", "연령 확인 가능", "확인 가능", "Known"]:
-            return color_map["lighter"]
+        if label in ["여성", "Female", "female"]:
+            return COLOR_FEMALE
+        elif label in ["남성", "Male", "male"]:
+            return COLOR_MALE
+        elif label in ["남/여 전체", "연령 확인 가능", "확인 가능", "Known", "known"]:
+            return COLOR_KNOWN
         elif label in ["알 수 없음", "Unknown", "unknown"]:
-            return color_map["dark"]
-        return color_map["dark"]
+            return COLOR_UNKNOWN
+        return COLOR_UNKNOWN
 
     colors = [_pick_color(label) for label in labels]
 
@@ -1314,10 +1417,8 @@ def render_follower_gender_doughnut_chart(chart_data, color_map):
     )
 
     for i, t in enumerate(autotexts):
-        if colors[i] == color_map["lighter"]:
-            t.set_color("#252525")
-        else:
-            t.set_color("white")
+        # 어두운 텍스트
+        t.set_color("#252525")
 
         t.set_fontsize(14)
         t.set_fontweight("bold")
@@ -1380,8 +1481,9 @@ def _render_purchase_conversion_heatmap(
     age_order = ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
     gender_order = ["female", "male"]
     pivot = pivot.reindex(
-        index=[g for g in gender_order if g in pivot.index],
-        columns=[a for a in age_order if a in pivot.columns],
+        index=gender_order,
+        columns=age_order,
+        fill_value=0,
     )
 
     if pivot.empty:
@@ -1393,6 +1495,7 @@ def _render_purchase_conversion_heatmap(
         [color_map["lighter"], color_map["light"], color_map["base"], color_map["dark"]],
     )
 
+    pivot = pivot.fillna(0)
     heat_values = pivot.values.astype(float)
     vmin = float(np.nanmin(heat_values))
     vmax = float(np.nanmax(heat_values))
@@ -1416,7 +1519,7 @@ def _render_purchase_conversion_heatmap(
             ax.text(
                 j,
                 i,
-                f"{int(round(float(val))):,}\n ",
+                f"{int(round(float(val))):,}",
                 ha="center",
                 va="center",
                 fontsize=11,

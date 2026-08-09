@@ -3339,7 +3339,7 @@ def get_raw_keyword_performance_by_ids(ad_ids, date_start, date_end, target_age=
             WHERE ak.ad_id IN {ids}
         ) ek ON perf.ad_id = ek.ad_id
         GROUP BY ek.keyword
-        HAVING COUNT(DISTINCT perf.ad_body) >= 1
+        HAVING COUNT(DISTINCT perf.ad_body) >= 2
     """
     return pd.read_sql(query, engine)
 

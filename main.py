@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 import pandas as pd
-from scripts.processor import _normalize_keyword_by_pos, _best_adverb_score, kiwi, VERB_ADJ_TAGS
+from scripts.processor import _normalize_keyword_by_pos, _best_adverb_score, kiwi, VERB_ADJ_TAGS, _KO_BLOCK_DA_SUFFIX
 from scripts.visualizer import build_color_map, complementary_hex, render_dataset, is_dark_color, render_bubble_chart, render_purchase_pie_chart, render_follower_gender_doughnut_chart, render_follower_age_gender_stacked_barh_chart
 from scripts.reporter import generate_html
 from to_json import run as generate_json
@@ -84,45 +84,11 @@ def _safe_name(token: Any) -> str:
     return re.sub(r"[^0-9A-Za-z_.-]", "_", text)
 
 
-def _upgrade_fbcdn_thumbnail_url(url: str) -> str:
-    """Facebook CDN URL의 stp 파라미터에서 저해상도 설정을 고해상도로 교체."""
-    if "fbcdn.net" not in url:
-        return url
-    # p64x64 → p1080x1080 (픽셀 크기 업그레이드)
-    url = re.sub(r'p\d+x\d+', 'p1080x1080', url)
-    # q75 → q100 (품질 업그레이드)
-    url = re.sub(r'_q\d+_', '_q100_', url)
-    return url
-
-
-def _crop_to_feed_ratio(path: Path) -> None:
-    """
-    인스타그램 피드 기본 비율(4:5)보다 세로로 긴 이미지를 중앙 크롭.
-    - 4:5(1080×1350) 이하: 변경 없음
-    - 9:16(1080×1920) 등 세로가 더 긴 경우: 상하 중앙을 기준으로 4:5로 크롭
-    이미 올바른 비율이면 파일을 건드리지 않음.
-    """
-    try:
-        from PIL import Image
-        img = Image.open(path)
-        w, h = img.size
-        target_h = int(w * 5 / 4)   # 4:5 비율 기준 높이
-        if h <= target_h:
-            return  # 이미 4:5 이하 → 크롭 불필요
-        top  = (h - target_h) // 2
-        img  = img.crop((0, top, w, top + target_h))
-        fmt  = Image.registered_extensions().get(path.suffix.lower(), "JPEG").upper()
-        fmt  = fmt if fmt in {"JPEG", "PNG", "WEBP"} else "JPEG"
-        img.save(path, format=fmt, quality=92)
-    except Exception:
-        pass  # Pillow 없거나 실패해도 원본 유지
-
-
 def _materialize_content_thumbnails(items: list[dict[str, Any]], output_dir: str = "static/thumbnail") -> None:
     if not items:
         return
 
-    _load_env_file(Path("db_update/.env"))
+    _load_env_file(Path("scripts/.env"))
 
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -154,41 +120,8 @@ def _materialize_content_thumbnails(items: list[dict[str, Any]], output_dir: str
             item["thumbnail"] = cache[src]
             continue
 
-        # (추가)이미 웹 URL이면 그대로 사용 : 구매 콘텐츠 썸네일 수집 오류
-        # if src.startswith("http://") or src.startswith("https://"):
-        #     item["thumbnail"] = src
-        #     cache[src] = src
-        #     continue
-
         s3_loc = _parse_s3_location(src)
         if not s3_loc:
-            # 웹 URL(Facebook CDN 포함): 로컬에 다운로드해서 file://로 제공
-            if src.startswith("http://") or src.startswith("https://"):
-                import urllib.request
-                # fbcdn.net URL은 고화질로 업그레이드
-                download_url = _upgrade_fbcdn_thumbnail_url(src)
-                name_seed = hashlib.sha1(src.encode("utf-8")).hexdigest()[:16]
-                local_file = out_dir / f"{name_seed}.jpg"
-                if local_file.exists() and local_file.stat().st_size > 0:
-                    _crop_to_feed_ratio(local_file)
-                    local_src = f"./{local_file.as_posix()}"
-                    item["thumbnail"] = local_src
-                    cache[src] = local_src
-                else:
-                    try:
-                        req = urllib.request.Request(
-                            download_url,
-                            headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
-                        )
-                        with urllib.request.urlopen(req, timeout=15) as resp:
-                            local_file.write_bytes(resp.read())
-                        _crop_to_feed_ratio(local_file)
-                        local_src = f"./{local_file.as_posix()}"
-                        item["thumbnail"] = local_src
-                        cache[src] = local_src
-                        print(f"thumbnail downloaded: {local_file.name}")
-                    except Exception as exc:
-                        print(f"thumbnail download failed: {src[:80]}... err={exc}")
             continue
         bucket, key = s3_loc
 
@@ -200,7 +133,6 @@ def _materialize_content_thumbnails(items: list[dict[str, Any]], output_dir: str
 
         # 로컬에 파일이 이미 있으면 S3 다운로드 없이 바로 사용
         if local_file.exists() and local_file.stat().st_size > 0:
-            _crop_to_feed_ratio(local_file)
             local_src = f"./{local_file.as_posix()}"
             item["thumbnail"] = local_src
             cache[src] = local_src
@@ -217,7 +149,6 @@ def _materialize_content_thumbnails(items: list[dict[str, Any]], output_dir: str
                 print(f"thumbnail download failed: bucket={bucket} key={key} err={exc}")
                 continue
 
-        _crop_to_feed_ratio(local_file)
         local_src = f"./{local_file.as_posix()}"
         item["thumbnail"] = local_src
         cache[src] = local_src
@@ -322,6 +253,8 @@ def _append_da_if_predicate(value: Any) -> Any:
     if len(token) < 2:
         return value
     if " " in token or not _KOREAN_RE.search(token):
+        return value
+    if token in _KO_BLOCK_DA_SUFFIX:
         return value
 
     if not _is_predicate_for_display(token):
@@ -543,9 +476,7 @@ def export_to_pdf(html_path, output_pdf_path):
     with sync_playwright() as p:
         # 브라우저 실행 (백그라운드)
         browser = p.chromium.launch(args=["--allow-file-access-from-files", "--disable-web-security"])
-        # device_scale_factor=2 로 래스터 이미지(썸네일)를 2배 해상도로 렌더링
-        context = browser.new_context(device_scale_factor=2)
-        page = context.new_page()
+        page = browser.new_page()
 
         # 1. HTML 파일 로드 (절대 경로 권장)
         import os

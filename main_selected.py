@@ -34,47 +34,31 @@ def run():
     # ▼▼▼ 여기에 보고서를 생성할 ad_id 목록을 입력하세요 ▼▼▼
     config = {
         "ad_ids": [
+            4561,
+            4369,
+            5019,
+            4367,
+            8658,
+            11648,
+            3422,
+            8210,
+            11647,
+            8237,
+            7941,
+            8656,
+            11635,
             4230,
             3539,
-            3537,
-            8241,
-            7942,
-            5019,
-            11628,
-            4369,
-            4367,
-            4487,
-            11653,
-            8213,
-            8662,
-            8237,
-            8238,
-            4561,
-            7941,
-            7944,
-            3416,
-            3422,
-            8656,
-            8641,
-            11629,
-            11631,
-            8669,
-            11635,
-            11647,
-            11648,
-            11649,
-            11657,
-            8658,
-            4489,
-            8668,
-            4133,
-            8210,
-            8211,
             4492,
-            1005,
-            3148,
-            1009,
-            4491
+            11653,
+            7942,
+            3537,
+            4133,
+            8668,
+            8662,
+            8641,
+            8238,
+            7944
         ],
         # fb_ad_account_id: Instagram 팔로워/오가닉 데이터를 포함하려면 입력
         # 불필요하면 빈 문자열("")로 두세요
@@ -83,12 +67,14 @@ def run():
         "start": "",
         "end": "",
         # 타겟 필터 (필요 없으면 빈 문자열)
-        "main_age": ['18-24', '25-34'],
+        "main_age": "",
         "main_gender": "",
         "avoid_age": "",
         "avoid_gender": "",
         "currency": "",   # ""=원화, "dollar"=달러
     }
+    # 제외해야할 단어가 있을 경우 processor.py BLOCKED_KEYWORD_FORMS(1105) 또는 _EN_BLOCKED_KEYWORDS(1123)에 추가
+    # CTR 상하위 키워드 최소 포함 콘텐츠 개수 변경시 processor.py COUNT(DISTINCT perf.ad_body) 최솟값(3342) 변경 + main_selected.py overall_top_note(337), overall_bottom_note(340) 멘트 변경
     # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
     # ============================================================
 
@@ -124,7 +110,7 @@ def run():
     )
 
     report_path = "json_reports/integrated_report.json"
-    theme_color = "#081F2C"
+    theme_color = "#182548"
 
     report_json = _load_report(report_path)
     _apply_display_predicate_suffix(report_json)
@@ -348,10 +334,10 @@ def run():
             "purchase_footnote": purchase_footnote,
         },
         "keywords": {
-            "overall_top_note": "*1개 이상의 콘텐츠에 등장한 단어만 표시",
+            "overall_top_note": "*2개 이상의 콘텐츠에 등장한 단어만 표시",
             "overall_top_tables": filter_none(o_top),
             "overall_combo_pages": [{"note": f"*계정 전체 평균 CTR: {overall_ctr}%", "cards": cards}],
-            "overall_bottom_note": "*1개 이상의 콘텐츠에 등장한 단어만 표시",
+            "overall_bottom_note": "*2개 이상의 콘텐츠에 등장한 단어만 표시",
             "overall_bottom_tables": filter_none(o_bot),
             "main_target": {"title": main_label} if has_main_target else None,
             "main_top_tables": filter_none(m_top) if m_top else None,
