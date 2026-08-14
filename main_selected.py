@@ -336,16 +336,34 @@ def run():
         "keywords": {
             "overall_top_note": "*2개 이상의 콘텐츠에 등장한 단어만 표시",
             "overall_top_tables": filter_none(o_top),
-            "overall_combo_pages": [{"note": f"*계정 전체 평균 CTR: {overall_ctr}%", "cards": cards}],
+            "overall_combo_pages": [
+                {
+                    "note": f"*업종 필수 키워드: 동일 업종의 상위 브랜드 10개의 웹사이트에서 자주 사용된 단어"
+                    f"<br>*브랜드 변수 키워드: 필수 키워드 외 콘텐츠에 활용된 단어<br><br>*계정 전체 평균 CTR: {overall_ctr}%",
+                    "cards": cards,
+                }
+            ],
             "overall_bottom_note": "*2개 이상의 콘텐츠에 등장한 단어만 표시",
             "overall_bottom_tables": filter_none(o_bot),
             "main_target": {"title": main_label} if has_main_target else None,
             "main_top_tables": filter_none(m_top) if m_top else None,
-            "main_combo_pages": [{"note": f"*{main_label} 평균 CTR: {main_ctr}%", "cards": cards_main}] if has_main_target else None,
+            "main_combo_pages": [
+                {
+                    "note": f"*업종 필수 키워드: 동일 업종의 상위 브랜드 10개의 웹사이트에서 자주 사용된 단어"
+                    f"<br>*브랜드 변수 키워드: 필수 키워드 외 콘텐츠에 활용된 단어<br><br>*{main_label} 평균 CTR: {main_ctr}%",
+                    "cards": cards_main,
+                }
+            ] if has_main_target else None,
             "main_bottom_tables": filter_none(m_bot) if m_bot else None,
             "avoid_target": {"title": avoid_label} if has_avoid_target else None,
             "avoid_top_tables": filter_none(a_top) if a_top else None,
-            "avoid_combo_pages": [{"note": f"*{avoid_label} 평균 CTR: {avoid_ctr}%", "cards": cards_avoid}] if has_avoid_target else None,
+            "avoid_combo_pages": [
+                {
+                    "note": f"*업종 필수 키워드: 동일 업종의 상위 브랜드 10개의 웹사이트에서 자주 사용된 단어"
+                    f"<br>*브랜드 변수 키워드: 필수 키워드 외 콘텐츠에 활용된 단어<br><br>*{avoid_label} 평균 CTR: {avoid_ctr}%",
+                    "cards": cards_avoid,
+                }
+            ] if has_avoid_target else None,
             "avoid_bottom_tables": filter_none(a_bot) if a_bot else None,
         },
         "appendix_groups": report_json.get("appendix_groups", []),

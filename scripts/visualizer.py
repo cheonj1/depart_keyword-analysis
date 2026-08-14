@@ -641,8 +641,54 @@ def render_bar_h_chart(
     fig, ax = plt.subplots(figsize=(width, height))
 
     colors = _value_colors(values, color_map, palette=palette)
-    ax.barh(y, values, color=colors)
+    bars = ax.barh(y, values, color=colors)
     ax.invert_yaxis()
+
+    bar_labels = dataset.get("bar_labels")
+    if bar_labels:
+        bar_labels = bar_labels[: len(values)]
+        max_val = max(values) if values else 0.0
+        x_offset = max(max_val * 0.02, max_val * 1e-6 if max_val else 0.0)
+        label_fontsize = 7 if compact else 8
+        muted_color = color_map.get("muted", "#666666")
+
+        # 막대 폭이 좁으면 라벨이 막대 밖으로 튀어나오므로, 실제 렌더링 폭을 측정해
+        # 막대 안에 안 들어가면 막대 밖(오른쪽, 어두운 글자색)으로 재배치한다.
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        max_label_right = 0.0
+        for yi, (val, lbl, bar) in enumerate(zip(values, bar_labels, bars)):
+            if not lbl:
+                continue
+            bar_rgba = matplotlib.colors.to_rgba(colors[yi])
+            txt = ax.text(
+                x_offset, yi, lbl,
+                ha="left", va="center",
+                fontsize=label_fontsize,
+                color=_contrast_text_color(bar_rgba, threshold=0.45),
+                linespacing=1.15,
+            )
+            text_bbox = txt.get_window_extent(renderer=renderer)
+            bar_bbox = bar.get_window_extent(renderer=renderer)
+            if text_bbox.width > (bar_bbox.width - 4):
+                txt.remove()
+                x_outside = val + x_offset
+                txt = ax.text(
+                    x_outside, yi, lbl,
+                    ha="left", va="center",
+                    fontsize=label_fontsize,
+                    color=muted_color,
+                    linespacing=1.15,
+                )
+                fig.canvas.draw()
+                text_bbox = txt.get_window_extent(renderer=renderer)
+                data_bbox = text_bbox.transformed(ax.transData.inverted())
+                max_label_right = max(max_label_right, data_bbox.x1)
+
+        if max_label_right > 0:
+            cur_xmin, cur_xmax = ax.get_xlim()
+            if max_label_right > cur_xmax:
+                ax.set_xlim(cur_xmin, max_label_right * 1.02)
 
     if compact:
         ax.set_xticks([])
@@ -955,6 +1001,7 @@ def render_bubble_chart(
     color_map: Dict[str, Any],
     compact: bool = True,
     palette: Optional[List[str]] = None,
+    unit: str = "%",
 ) -> str:
     labels = dataset.get("labels") or []
     series = dataset.get("series") or []
@@ -1064,7 +1111,7 @@ def render_bubble_chart(
         ax.text(
             pos[0],
             pos[1],
-            f"{label}\n({ctr:.2f}%)",
+            f"{label}\n({ctr:.2f}{unit})",
             fontsize=font_size,
             ha="center",
             va="center",

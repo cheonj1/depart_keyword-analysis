@@ -259,7 +259,25 @@ def _append_da_if_predicate(value: Any) -> Any:
 
     if not _is_predicate_for_display(token):
         return value
-    return f"{token}다"
+    return f"{token}{_predicate_display_suffix(token)}"
+
+
+def _predicate_display_suffix(token: str) -> str:
+    """'~다'를 붙일 때 그대로 '다'만 붙일지('가깝'→'가깝다'), '하다'처럼 XSA/XSV
+    파생 접미사를 끼워 넣어야 할지('간단'→'간단하다')를 판별해 접미사를 반환한다."""
+    # 1) token 자체가 이미 완결된 용언 어간이면 '다'만 붙이면 된다 (예: 가깝+다=가깝다)
+    for tokens, _ in kiwi.analyze(f"{token}다", top_n=5):
+        if not tokens:
+            continue
+        first = next((tok for tok in tokens if str(tok.tag).split("-")[0] in VERB_ADJ_TAGS), None)
+        if first and first.form == token:
+            return "다"
+    # 2) XR/NNG/NNP 어근 + 하(XSA/XSV) 파생 패턴이면 그 파생 접미사까지 붙인다 (예: 간단+다=간단하다)
+    for tokens, _ in kiwi.analyze(f"{token}다", top_n=5):
+        if len(tokens) >= 2 and tokens[0].form == token and tokens[0].tag in {"XR", "NNG", "NNP"}:
+            if tokens[1].tag in {"XSA", "XSV"} or str(tokens[1].tag).startswith("XSA"):
+                return f"{tokens[1].form}다"
+    return "다"
 
 
 def _is_predicate_for_display(token: str) -> bool:
@@ -388,7 +406,7 @@ def _average_series(dataset: dict):
     return sum(data) / len(data)
 
 
-def _combo_cards(dataset: dict, palette: list[str] | None = None):
+def _combo_cards(dataset: dict, palette: list[str] | None = None, unit: str = "%"):
     rows = (dataset or {}).get("rows") or []
     if not rows:
         return []
@@ -447,10 +465,10 @@ def _combo_cards(dataset: dict, palette: list[str] | None = None):
                 {"name": "CTR", "data": group_df["with_var_ctr"].tolist()},
                 {"name": "Imps", "data": imps_series.tolist()},
             ],
-            "unit": "%",
+            "unit": unit,
         }
 
-        chart_svg = render_bubble_chart(mini_ds, color_map, compact=True, palette=palette)
+        chart_svg = render_bubble_chart(mini_ds, color_map, compact=True, palette=palette, unit=unit)
         if chart_svg and "<svg" in chart_svg:
             chart_svg = chart_svg[chart_svg.find("<svg"):]
 
@@ -461,10 +479,10 @@ def _combo_cards(dataset: dict, palette: list[str] | None = None):
 
         cards.append({
             "rank": i,
-            "title": f"조합 {i}위 : {e1} + {e2} ({ctr_text}%)",
+            "title": f"조합 {i}위 : {e1} + {e2} ({ctr_text}{unit})",
             "sub": "함께 쓰인 브랜드 변수 키워드별 성과",
             "image": chart_svg,
-            "ctr_text": f"{ctr_text}%",
+            "ctr_text": f"{ctr_text}{unit}",
         })
         
     return cards

@@ -1112,6 +1112,8 @@ _EN_FASHION_NOUN_SET = frozenset({
     "outer", "inner", "item", "piece", "set", "top", "bottom",
     "cut", "line", "detail", "color", "texture", "fabric",
     "intelligence", "signature",
+    "capcut",  # 캡컷(영상 편집 앱) — NLTK가 미등록 단어라 동사류로 오분류
+    "dawn", "ram", "pro", "endel", "goodnotes", "registar",  # 고유명사/제품군 명칭 — NLTK가 동사/형용사류로 오분류
 })
 # NLTK 맥락 태그가 패션 명사와 동일해 자동 구분 불가한 동사/형용사 명시 목록
 # (이 목록에 있는 단어는 명사 버킷에 들어가지 않도록 강제)
@@ -1126,12 +1128,21 @@ _KO_FORCE_VERB_ADJ = frozenset({
     "거창하", "거창",   # 거창하다(VA) — kiwi가 '거창'을 XR 어근으로 분리해 NNG 오분류
     "이르",             # 이르다(VA, '러' 불규칙) — kiwi가 VA-R/VV-R/VV-I 태그를 정확 매칭하지 못해 NNP(명사)로 오분류
     "뒤숭숭하",         # 뒤숭숭하다(VA) — kiwi가 '뒤숭숭'을 MAG/XR 어근+'하'(XSA)로 분석해 VA 태그를 못 잡아 명사/형용사 둘 다 None 처리되는 것을 방지
+    # 아래 2개는 부사(MAG/MAJ) 후보와 경합해 명사/형용사 둘 다 None으로 탈락하던 것을
+    # noun_whitelist_review.csv 검수에서 형용사(당연하다/완전하다) 어간으로 확정
+    "당연", "완전",
 })
 
 # kiwi가 '다리다'/'다리고' 활용형을 동사(옷을 다리다)로 오분석해
 # _looks_like_predicate_stem이 True를 반환, 명사인 어간이 동사/형용사 버킷으로 분류되는 것을 막기 위한 예외 목록
 _KO_FORCE_NOUN = frozenset({
     "다리",  # 다리(NNG, 다리/교량) — kiwi가 '다리고'를 다리다(VV)로 오분석해 동사로 오분류
+    # 아래는 2음절 명사인데 조사 분해(예: 강+도)나 va_score 마진 체크에 오탐으로 걸려
+    # 명사/형용사 둘 다 None으로 탈락하던 것들을 noun_whitelist_review.csv 검수에서 확정한 목록
+    "강도", "고가", "구도", "명의", "밀도", "사실", "세로", "소란", "속도", "저가",
+    "조도", "지도", "편의", "과도", "세기", "신고", "잡음", "재고", "주기",
+    "시인성",  # 시인성(visibility) — kiwi가 접미사 '성'(XSN)을 떼고 '시인'(NNG, 시인/poet)만
+               # 어근으로 추출해 전혀 다른 단어처럼 표시되는 것을 방지
 })
 
 # main.py 표시 단계에서 '다'를 붙여 재분석할 때(예: '다리'+'다'='다리다')
@@ -1159,6 +1170,11 @@ def _ensure_nltk_path():
 def _keyword_pos_candidates(raw_text):
     """
     키워드 문자열에 대해 형태소 분석 후보(형태, 태그, 점수)를 반환.
+    kiwi는 불규칙 활용(ㅂ/르/러 등)을 VA-I/VV-I/VA-R/VV-R처럼 세부 태그로 구분하는데,
+    VALID_KEYWORD_TAGS(NNG/NNP/VA/VV)는 정확히 일치하는 태그만 잡으므로 '가깝'(가깝다,
+    ㅂ불규칙)처럼 흔한 형용사/동사가 명사·형용사·동사 어디에도 속하지 못해 통째로 탈락하는
+    문제가 있었다. 태그의 '-' 앞부분(기본형)까지 비교해 이런 불규칙 활용도 잡아내고,
+    이후 로직(품사 비교 등)에서는 기본형 태그로 통일해서 쓴다.
     """
     text = str(raw_text).strip()
     if not text:
@@ -1166,13 +1182,17 @@ def _keyword_pos_candidates(raw_text):
 
     candidates = []
     for tokens, score in kiwi.analyze(text, top_n=5):
-        first = next((tok for tok in tokens if tok.tag in VALID_KEYWORD_TAGS), None)
+        first = next(
+            (tok for tok in tokens if str(tok.tag).split("-")[0] in VALID_KEYWORD_TAGS),
+            None
+        )
         if first is None:
             continue
         form = first.form.strip()
         if len(form) < 2 or form.isdigit():
             continue
-        candidates.append((form, first.tag, float(score)))
+        base_tag = str(first.tag).split("-")[0]
+        candidates.append((form, base_tag, float(score)))
     return tuple(candidates)
 
 
@@ -1271,22 +1291,31 @@ def _looks_like_predicate_stem(form):
     for tokens, _ in kiwi.analyze(f"{stem}다", top_n=1):
         if not tokens:
             continue
-        first = next((tok for tok in tokens if tok.tag in VALID_KEYWORD_TAGS), None)
-        if first and first.form == stem and first.tag in VERB_ADJ_TAGS:
+        first = next((tok for tok in tokens if str(tok.tag).split("-")[0] in VALID_KEYWORD_TAGS), None)
+        if first and first.form == stem and str(first.tag).split("-")[0] in VERB_ADJ_TAGS:
             return True
         # 예: 강/XR+하/XSA+다/EF, 코디/NNG+하/XSV+다/EF, 여유/NNG+롭/XSA-I+다/EF
+        # (stem 자체에 '하'/'롭' 등이 이미 포함된 경우: "강하"+다 → 강/XR+하/XSA)
         if len(tokens) >= 2 and tokens[0].form + tokens[1].form == stem:
             if (tokens[0].tag in {"XR", "NNG", "NNP"}
                     and (tokens[1].tag in {"XSA", "XSV"}
                          or str(tokens[1].tag).startswith("XSA"))):
+                return True
+        # stem이 '하' 없는 순수 불완전 어근(XR)인 경우: "깨끗"+다 → 깨끗/XR+하/XSA
+        # ('하'는 kiwi가 암묵 삽입). NNG/NNP(그 자체로 완결된 명사)까지 여기 포함하면
+        # '시작'(명사)+하다='시작하다'처럼 아주 흔한 "명사+하다" 파생 패턴까지 전부
+        # 용언으로 뒤집혀 명사 분류가 깨지므로, 독립된 단어로 설 수 없는 XR만 허용한다.
+        if len(tokens) >= 2 and tokens[0].form == stem and tokens[0].tag == "XR":
+            if (tokens[1].tag in {"XSA", "XSV"}
+                    or str(tokens[1].tag).startswith("XSA")):
                 return True
 
     for ending in ("고", "면"):
         for tokens, _ in kiwi.analyze(f"{stem}{ending}", top_n=1):
             if not tokens:
                 continue
-            first = next((tok for tok in tokens if tok.tag in VALID_KEYWORD_TAGS), None)
-            if first and first.form == stem and first.tag in VERB_ADJ_TAGS:
+            first = next((tok for tok in tokens if str(tok.tag).split("-")[0] in VALID_KEYWORD_TAGS), None)
+            if first and first.form == stem and str(first.tag).split("-")[0] in VERB_ADJ_TAGS:
                 return True
 
     return False
@@ -1368,6 +1397,15 @@ def _normalize_keyword_by_pos(text, pos_type='noun'):
 
     candidates = _keyword_pos_candidates(text)
     if not candidates:
+        # kiwi가 '깨끗'처럼 XR(불완전 어근)로만 분석해 NNG/NNP/VA/VV 후보를 하나도
+        # 못 내는 경우가 있다. 이런 경우도 +다 재분석(_looks_like_predicate_stem)으로
+        # 용언 어간인지 판별해 verb_adj를 놓치지 않게 한다.
+        if pos_type == "verb_adj" and not _is_blocked_keyword_form(cleaned_text) and _looks_like_predicate_stem(cleaned_text):
+            adverb_score = _best_adverb_score(text)
+            best_overall = _best_overall_score(text)
+            if adverb_score is not None and best_overall is not None and adverb_score >= best_overall:
+                return None
+            return cleaned_text
         return None
 
     noun_best = _pick_best_candidate(candidates, NOUN_TAGS)
@@ -1443,10 +1481,16 @@ def _normalize_keyword_by_pos(text, pos_type='noun'):
 
     return None
 
-def filter_keywords_by_pos(df, pos_type='noun', exclude_zero_ctr=False):
+def filter_keywords_by_pos(df, pos_type='noun', exclude_zero_ctr=False, sort_col='avg_ctr', rate_multiplier=100):
     """
     pos_type: 'noun' (NNG, NNP), 'verb_adj' (VV, VA)
-    exclude_zero_ctr: True면 avg_ctr <= 0 항목 제외
+    exclude_zero_ctr: True면 sort_col <= 0 항목 제외
+    sort_col: 정제된 키워드 병합 후 정렬 방향을 유지할 때 기준으로 쓰는 컬럼.
+              기본은 avg_ctr(CTR%)이며, 팔로우 발생수처럼 다른 지표로 순위를 매기려면
+              해당 컬럼명(예: total_clicks)을 지정한다.
+    rate_multiplier: 정제된 키워드 병합 후 avg_ctr을 total_clicks/total_impressions로 재계산할 때
+                      곱하는 배수. 기본 100(CTR %)이며, 도달 1000당 팔로우 발생 수처럼 다른 배수를
+                      쓰려면 지정한다 (예: 1000).
     """
     if df is None or df.empty:
         return None
@@ -1475,29 +1519,38 @@ def filter_keywords_by_pos(df, pos_type='noun', exclude_zero_ctr=False):
     if agg_map:
         filtered_df = filtered_df.groupby('keyword', as_index=False).agg(agg_map)
 
-    # 노출/클릭 합계가 있으면 CTR 재계산
+    # 노출/클릭 합계가 있으면 CTR(또는 다른 배수의 비율) 재계산
     if {'total_clicks', 'total_impressions'}.issubset(filtered_df.columns):
         filtered_df['avg_ctr'] = np.where(
             filtered_df['total_impressions'] > 0,
-            np.round((filtered_df['total_clicks'] / filtered_df['total_impressions']) * 100, 2),
+            np.round((filtered_df['total_clicks'] / filtered_df['total_impressions']) * rate_multiplier, 2),
+            np.nan
+        )
+
+    # 등장 콘텐츠 수(doc_freq) 합계가 있으면 콘텐츠당 평균도 재계산 (예: 팔로우 발생 수 평균)
+    if {'total_clicks', 'doc_freq'}.issubset(filtered_df.columns):
+        filtered_df['avg_follows_per_content'] = np.where(
+            filtered_df['doc_freq'] > 0,
+            np.round(filtered_df['total_clicks'] / filtered_df['doc_freq'], 2),
             np.nan
         )
 
     # 입력 정렬 방향(top/bottom)을 최대한 유지
-    if 'avg_ctr' in filtered_df.columns and len(filtered_df) > 1:
-        orig_avg = pd.to_numeric(df.get('avg_ctr'), errors='coerce')
-        orig_avg = orig_avg.dropna()
+    has_tiebreak = 'total_impressions' in filtered_df.columns and sort_col != 'total_impressions'
+    if sort_col in filtered_df.columns and len(filtered_df) > 1:
+        orig_vals = pd.to_numeric(df.get(sort_col), errors='coerce')
+        orig_vals = orig_vals.dropna()
         is_ascending = False
-        if len(orig_avg) >= 2:
-            is_ascending = bool(orig_avg.iloc[0] <= orig_avg.iloc[-1])
+        if len(orig_vals) >= 2:
+            is_ascending = bool(orig_vals.iloc[0] <= orig_vals.iloc[-1])
         filtered_df = filtered_df.sort_values(
-            by=['avg_ctr', 'total_impressions'] if 'total_impressions' in filtered_df.columns else ['avg_ctr'],
-            ascending=[is_ascending, False] if 'total_impressions' in filtered_df.columns else [is_ascending]
+            by=[sort_col, 'total_impressions'] if has_tiebreak else [sort_col],
+            ascending=[is_ascending, False] if has_tiebreak else [is_ascending]
         )
 
-    if exclude_zero_ctr and 'avg_ctr' in filtered_df.columns:
-        ctr_vals = pd.to_numeric(filtered_df['avg_ctr'], errors='coerce')
-        filtered_df = filtered_df[ctr_vals > 0]
+    if exclude_zero_ctr and sort_col in filtered_df.columns:
+        sort_vals = pd.to_numeric(filtered_df[sort_col], errors='coerce')
+        filtered_df = filtered_df[sort_vals > 0]
 
     return filtered_df.head(10)
 
@@ -1671,6 +1724,50 @@ def get_strategic_performance(account_id, date_start, date_end, target_age=None,
 
     grouped = grouped.sort_values(by=["combo_overall_ctr", "with_var_ctr"], ascending=[False, False])
     return grouped[["ess_1", "ess_2", "combo_doc_freq", "combo_overall_ctr", "var_keyword", "with_var_ctr", "var_imps"]]
+
+
+# ============================================================
+# 팔로우 키워드 분석(main-follow.py)용: 게시물 ID → 키워드 매핑
+# 팔로우/도달 성과 자체는 CSV(Meta 인사이트 export: 게시물 ID/도달/팔로우)로 받고,
+# 그 게시물에 붙은 essential/variable_keywords만 DB에서 가져와 붙여준다.
+# 게시물 ID는 ig_contents.fb_ig_media_id 기준(Meta에서 내보내는 게시물 ID 포맷과 동일).
+# 같은 게시물을 여러 광고가 재사용했다면 그 광고들의 키워드를 모두 합쳐(중복 제거) 반환한다.
+# ============================================================
+
+def get_content_keywords_by_account(account_id):
+    engine = get_engine()
+
+    query = f"""
+        WITH ess AS (
+            SELECT
+                ic.fb_ig_media_id AS post_id,
+                ARRAY_AGG(DISTINCT NULLIF(TRIM(u.kw), '')) FILTER (WHERE NULLIF(TRIM(u.kw), '') IS NOT NULL) AS essential_keywords
+            FROM ads a
+            JOIN ig_contents ic ON a.source_ig_media_id = ic.fb_ig_media_id
+            JOIN ad_keywords ak ON ak.ad_id = a.id
+            CROSS JOIN LATERAL UNNEST(COALESCE(ak.essential_keywords, ARRAY[]::text[])) AS u(kw)
+            WHERE a.account_id = {account_id}
+            GROUP BY ic.fb_ig_media_id
+        ),
+        var AS (
+            SELECT
+                ic.fb_ig_media_id AS post_id,
+                ARRAY_AGG(DISTINCT NULLIF(TRIM(u.kw), '')) FILTER (WHERE NULLIF(TRIM(u.kw), '') IS NOT NULL) AS variable_keywords
+            FROM ads a
+            JOIN ig_contents ic ON a.source_ig_media_id = ic.fb_ig_media_id
+            JOIN ad_keywords ak ON ak.ad_id = a.id
+            CROSS JOIN LATERAL UNNEST(COALESCE(ak.variable_keywords, ARRAY[]::text[])) AS u(kw)
+            WHERE a.account_id = {account_id}
+            GROUP BY ic.fb_ig_media_id
+        )
+        SELECT
+            COALESCE(ess.post_id, var.post_id) AS post_id,
+            COALESCE(ess.essential_keywords, ARRAY[]::text[]) AS essential_keywords,
+            COALESCE(var.variable_keywords, ARRAY[]::text[]) AS variable_keywords
+        FROM ess
+        FULL OUTER JOIN var ON ess.post_id = var.post_id
+    """
+    return pd.read_sql(query, engine)
 
 
 # 별첨 필수키워드

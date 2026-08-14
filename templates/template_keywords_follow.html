@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ report.title }} | {{ report.client }}</title>
+  <link rel="stylesheet" href="{{ css_path or 'report.css' }}">
+  {% if theme %}
+  <style>
+    :root {
+      --theme-color: {{ theme.base }};
+      --theme-dark-color: {{ theme.dark }};
+      --theme-header-color: {{ theme.header }};
+      --theme-title-color: {{ theme.title }};
+      --highlight-main-color: {{ theme.highlight_main }};
+      --highlight-avoid-color: {{ theme.highlight_avoid }};
+      --cover-text-color: {{ theme.cover_text }};
+    }
+  </style>
+  {% endif %}
+  <style>
+    /* 팔로우 리포트 전용 키워드 차트 그리드 — report.css의 .keyword-quad와 별개로 동작 */
+    .follow-keyword-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      /* 라벨 행(2번째)을 고정 높이로 잡아, 차트 시작 위치(3번째 행)는 항상 고정된 채
+         라벨만 그 안에서 아래쪽으로 정렬시켜 간격을 조절할 수 있게 한다.
+         차트 행(3번째)도 고정 높이로 바꿔 1fr 자동 확장을 막고, 각주와 겹치지 않는
+         선에서 차트 시작 위치가 위로 당겨지도록 한다. */
+      grid-template-rows: auto 20.4mm 226.8mm;
+      column-gap: 3.2mm;
+      row-gap: 0;
+      min-height: 100%;
+    }
+    .follow-keyword-grid__caption {
+      grid-column: span 6;
+      text-align: center;
+      font-size: 24.75pt;
+      font-weight: 800;
+      color: #444;
+      margin: 0;
+    }
+    .follow-keyword-grid__label {
+      grid-column: span 3;
+      align-self: end;
+      text-align: center;
+      font-size: 22pt;
+      font-weight: 700;
+      color: #666;
+      margin: 0;
+      margin-bottom: 0;
+      /* 차트 컨테이너 전체 중앙이 아니라, 카테고리 라벨을 뺀 가로축(막대 시작점)~오른쪽 끝
+         사이의 중앙에 오도록 우측으로 살짝 이동 (막대 좌측 카테고리명 폭만큼 보정) */
+      transform: translateX(12mm);
+    }
+    .follow-keyword-grid__chart {
+      grid-column: span 3;
+      min-height: 122mm;
+      display: flex;
+      flex-direction: column;
+    }
+    /* 차트와 각주 사이 간격이 약 12mm가 되도록 report.css 기본값(10mm)에서 조정 */
+    .page-note {
+      bottom: 13mm;
+    }
+    .follow-keyword-grid__chart .figure {
+      flex: 1;
+      display: flex;
+    }
+    .follow-keyword-grid__chart .figure__svg,
+    .follow-keyword-grid__chart .figure__img {
+      height: 100%;
+      max-height: none;
+    }
+    .follow-keyword-grid__chart .figure__svg svg {
+      height: 100% !important;
+    }
+  </style>
+</head>
+
+<body>
+
+  {# =========================
+     Macros (template.html과 동일 — 계정 성과 없이 키워드 리포트만 렌더링)
+     ========================= #}
+
+  {% macro page_header(section_title='') %}
+  <header class="page-header">
+    <div class="page-header__left">
+      {% if section_title %}
+        <span class="page-header__section">{{ section_title }}</span>
+      {% endif %}
+    </div>
+    <div class="page-header__right">
+      <span class="page-header__brand">
+        {{ report.client }} {{ report.quarter_label }} 팔로우 키워드 분석
+      </span>
+    </div>
+  </header>
+  {% endmacro %}
+
+  {% macro big_title(title, subtitle=None) %}
+  <div class="title-block">
+    <h1 class="title-block__title">{{ title | safe }}</h1>
+    {% if subtitle %}
+      <div class="title-block__subtitle">{{ subtitle }}</div>
+    {% endif %}
+  </div>
+  {% endmacro %}
+
+  {% macro figure(img_src=None, caption=None, alt='', class_name='') %}
+  <figure class="figure{% if class_name %} {{ class_name }}{% endif %}">
+    {% if img_src %}
+      {% set _img = img_src | trim %}
+      {% if _img.startswith('<svg') %}
+        <div class="figure__svg">{{ img_src | safe }}</div>
+      {% else %}
+        <img class="figure__img" src="{{ img_src }}" alt="{{ alt }}">
+      {% endif %}
+    {% else %}
+      <div class="figure__placeholder">CHART / IMAGE</div>
+    {% endif %}
+    {% if caption %}
+      <figcaption class="figure__caption">{{ caption }}</figcaption>
+    {% endif %}
+  </figure>
+  {% endmacro %}
+
+  {% macro simple_table(headers, rows, footnote=None, title=None, span_class='span-12') %}
+  <div class="{{ span_class }}">
+    {% if title %}
+      <div class="table-title">{{ title }}</div>
+    {% endif %}
+    <table class="table">
+      <thead>
+        <tr>
+          {% for h in headers %}
+            <th>{{ h | safe }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr>
+            {% for c in r %}
+              <td>{{ c }}</td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if footnote %}
+      <div class="footnote">{{ footnote }}</div>
+    {% endif %}
+  </div>
+  {% endmacro %}
+
+
+
+  {# =========================================================
+     (1) Cover
+     ========================================================= #}
+  <section class="page page--cover">
+    <div class="cover" style="writing-mode:horizontal-tb; text-orientation:mixed;">
+      <div class="cover__client">{{ report.quarter_label }}</div>
+      <div class="cover__title">
+        {% if report.year and report.quarter_label and report.quarter_label.startswith(report.year) %}
+          {{ report.client }} 팔로우 키워드 분석 보고서
+        {% elif report.year and report.quarter_label %}
+          {{ report.year }} {{ report.client }} 팔로우 키워드 분석 보고서
+        {% else %}
+          {{ report.client }} 팔로우 키워드 분석 보고서
+        {% endif %}
+      </div>
+      <div class="cover__date">{{ report.generated_at }}</div>
+      {% if report.brand %}
+        <div class="cover__brand">{{ report.brand }}</div>
+      {% endif %}
+    </div>
+  </section>
+
+
+
+
+  {# =========================================================
+     (3) Keywords - Overall Top 10
+     ========================================================= #}
+  <section class="page">
+    {{ page_header('타겟별 키워드') }}
+    {{ big_title('<span class="title-target-highlight title-target-highlight--overall">전체 연령/성별</span><br>키워드별 팔로우 성과 상위 10개') }}
+
+    <div class="page-body follow-keyword-grid">
+      <div class="follow-keyword-grid__caption">도달 1,000당 팔로우 발생 수 상위</div>
+      <div class="follow-keyword-grid__caption">키워드 포함 콘텐츠의 평균 팔로우 발생 수</div>
+
+      <div class="follow-keyword-grid__label">명사</div>
+      <div class="follow-keyword-grid__label">형용사/동사</div>
+      <div class="follow-keyword-grid__label">명사</div>
+      <div class="follow-keyword-grid__label">형용사/동사</div>
+
+      {% if charts.keyword_overall_top_noun is defined %}
+        <div class="follow-keyword-grid__chart">
+          {{ figure(charts.keyword_overall_top_noun, alt='keyword overall top (noun, rate)') }}
+        </div>
+      {% endif %}
+      {% if charts.keyword_overall_top_verb_adj is defined %}
+        <div class="follow-keyword-grid__chart">
+          {{ figure(charts.keyword_overall_top_verb_adj, alt='keyword overall top (verb/adj, rate)') }}
+        </div>
+      {% endif %}
+      {% if charts.keyword_overall_top_noun_count is defined %}
+        <div class="follow-keyword-grid__chart">
+          {{ figure(charts.keyword_overall_top_noun_count, alt='keyword overall top (noun, count)') }}
+        </div>
+      {% endif %}
+      {% if charts.keyword_overall_top_verb_adj_count is defined %}
+        <div class="follow-keyword-grid__chart">
+          {{ figure(charts.keyword_overall_top_verb_adj_count, alt='keyword overall top (verb/adj, count)') }}
+        </div>
+      {% endif %}
+    </div>
+
+    {% if keywords.overall_top_note %}
+      <div class="page-note page-note--left">{{ keywords.overall_top_note }}</div>
+    {% endif %}
+  </section>
+
+
+
+  {# =========================================================
+     (4) Keywords - Overall Combo Pages
+     ========================================================= #}
+  {% for p in keywords.overall_combo_pages %}
+    {% set grouped_cards = (p.cards or []) | batch(3) %}
+    {% for card_group in grouped_cards %}
+      <section class="page page--combo">
+        {{ page_header('타겟별 키워드') }}
+        {{ big_title('<span class="title-target-highlight title-target-highlight--overall">전체 연령/성별</span><br>도달 1,000당 팔로우 발생 수 상위 키워드 조합 + 함께 쓰인 단어') }}
+
+        <div class="page-body combo-page-body">
+          {% for card in card_group %}
+            {% if card %}
+              <div class="span-4">
+                <div class="combo-card">
+                  <div class="combo-card__title">{{ card.title }}</div>
+                  <div class="combo-card__sub">{{ card.sub }}</div>
+                  <div class="combo-card__viz">
+                    {% if card.image %}
+                      {{ card.image | safe }}
+                    {% else %}
+                      <div class="combo-placeholder">VIZ</div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+          {% endfor %}
+          {% if p.note %}
+            <div class="span-12 page-note page-note--left combo-page-note">{{ p.note }}</div>
+          {% endif %}
+        </div>
+      </section>
+    {% endfor %}
+  {% endfor %}
+
+
+
+  {# =========================================================
+     (6) Main target keywords (optional — 예: 성별/연령 세그먼트)
+     ========================================================= #}
+  {% if keywords.main_target %}
+    <section class="page">
+      {{ page_header('타겟별 키워드 - 메인 타겟') }}
+      {{ big_title('<span class="title-target-highlight title-target-highlight--main">' ~ keywords.main_target.title ~ '</span><br>키워드별 팔로우 성과 상위 10개') }}
+
+      <div class="page-body follow-keyword-grid">
+        <div class="follow-keyword-grid__caption">도달 1,000당 팔로우 발생 수 상위</div>
+        <div class="follow-keyword-grid__caption">키워드 포함 콘텐츠의 평균 팔로우 발생 수</div>
+
+        <div class="follow-keyword-grid__label">명사</div>
+        <div class="follow-keyword-grid__label">형용사/동사</div>
+        <div class="follow-keyword-grid__label">명사</div>
+        <div class="follow-keyword-grid__label">형용사/동사</div>
+
+        {% if charts.keyword_main_top_noun is defined %}
+          <div class="follow-keyword-grid__chart">
+            {{ figure(charts.keyword_main_top_noun, alt='keyword main top (noun, rate)') }}
+          </div>
+        {% endif %}
+        {% if charts.keyword_main_top_verb_adj is defined %}
+          <div class="follow-keyword-grid__chart">
+            {{ figure(charts.keyword_main_top_verb_adj, alt='keyword main top (verb/adj, rate)') }}
+          </div>
+        {% endif %}
+        {% if charts.keyword_main_top_noun_count is defined %}
+          <div class="follow-keyword-grid__chart">
+            {{ figure(charts.keyword_main_top_noun_count, alt='keyword main top (noun, count)') }}
+          </div>
+        {% endif %}
+        {% if charts.keyword_main_top_verb_adj_count is defined %}
+          <div class="follow-keyword-grid__chart">
+            {{ figure(charts.keyword_main_top_verb_adj_count, alt='keyword main top (verb/adj, count)') }}
+          </div>
+        {% endif %}
+      </div>
+    </section>
+
+    {% for p in keywords.main_combo_pages %}
+      {% set grouped_cards = (p.cards or []) | batch(3) %}
+      {% for card_group in grouped_cards %}
+        <section class="page page--combo">
+          {{ page_header('타겟별 키워드 - 메인 타겟') }}
+          {{ big_title('<span class="title-target-highlight title-target-highlight--main">' ~ keywords.main_target.title ~ '</span><br>도달 1,000당 팔로우 발생 수 상위 키워드 조합 + 함께 쓰인 단어') }}
+
+          <div class="page-body combo-page-body">
+            {% for card in card_group %}
+              {% if card %}
+                <div class="span-4">
+                  <div class="combo-card">
+                    <div class="combo-card__title">{{ card.title }}</div>
+                    <div class="combo-card__sub">{{ card.sub }}</div>
+                    <div class="combo-card__viz">
+                      {% if card.image %}
+                        {{ card.image | safe }}
+                      {% else %}
+                        <div class="combo-placeholder">VIZ</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+            {% endfor %}
+            {% if p.note %}
+              <div class="span-12 page-note page-note--left combo-page-note">{{ p.note }}</div>
+            {% endif %}
+          </div>
+        </section>
+      {% endfor %}
+    {% endfor %}
+  {% endif %}
+
+
+
+  {# =========================================================
+     (7) Avoiding target keywords (optional — 예: 성별/연령 세그먼트)
+     ========================================================= #}
+  {% if keywords.avoid_target %}
+    <section class="page">
+      {{ page_header('타겟별 키워드 - 기피 타겟') }}
+      {{ big_title('<span class="title-target-highlight title-target-highlight--avoid">' ~ keywords.avoid_target.title ~ '</span><br>키워드별 팔로우 성과 상위 10개') }}
+
+      <div class="page-body follow-keyword-grid">
+        <div class="follow-keyword-grid__caption">도달 1,000당 팔로우 발생 수 상위</div>
+        <div class="follow-keyword-grid__caption">키워드 포함 콘텐츠의 평균 팔로우 발생 수</div>
+
+        <div class="follow-keyword-grid__label">명사</div>
+        <div class="follow-keyword-grid__label">형용사/동사</div>
+        <div class="follow-keyword-grid__label">명사</div>
+        <div class="follow-keyword-grid__label">형용사/동사</div>
+
+        {% if charts.keyword_avoid_top_noun is defined %}
+          <div class="follow-keyword-grid__chart">
+            {{ figure(charts.keyword_avoid_top_noun, alt='keyword avoid top (noun, rate)') }}
+          </div>
+        {% endif %}
+        {% if charts.keyword_avoid_top_verb_adj is defined %}
+          <div class="follow-keyword-grid__chart">
+            {{ figure(charts.keyword_avoid_top_verb_adj, alt='keyword avoid top (verb/adj, rate)') }}
+          </div>
+        {% endif %}
+        {% if charts.keyword_avoid_top_noun_count is defined %}
+          <div class="follow-keyword-grid__chart">
+            {{ figure(charts.keyword_avoid_top_noun_count, alt='keyword avoid top (noun, count)') }}
+          </div>
+        {% endif %}
+        {% if charts.keyword_avoid_top_verb_adj_count is defined %}
+          <div class="follow-keyword-grid__chart">
+            {{ figure(charts.keyword_avoid_top_verb_adj_count, alt='keyword avoid top (verb/adj, count)') }}
+          </div>
+        {% endif %}
+      </div>
+    </section>
+
+    {% for p in keywords.avoid_combo_pages %}
+      {% set grouped_cards = (p.cards or []) | batch(3) %}
+      {% for card_group in grouped_cards %}
+        <section class="page page--combo">
+          {{ page_header('타겟별 키워드 - 기피 타겟') }}
+          {{ big_title('<span class="title-target-highlight title-target-highlight--avoid">' ~ keywords.avoid_target.title ~ '</span><br>도달 1,000당 팔로우 발생 수 상위 키워드 조합 + 함께 쓰인 단어') }}
+
+          <div class="page-body combo-page-body">
+            {% for card in card_group %}
+              {% if card %}
+                <div class="span-4">
+                  <div class="combo-card">
+                    <div class="combo-card__title">{{ card.title }}</div>
+                    <div class="combo-card__sub">{{ card.sub }}</div>
+                    <div class="combo-card__viz">
+                      {% if card.image %}
+                        {{ card.image | safe }}
+                      {% else %}
+                        <div class="combo-placeholder">VIZ</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endif %}
+            {% endfor %}
+            {% if p.note %}
+              <div class="span-12 page-note page-note--left combo-page-note">{{ p.note }}</div>
+            {% endif %}
+          </div>
+        </section>
+      {% endfor %}
+    {% endfor %}
+  {% endif %}
+
+
+  {# ========================= EOD Page ========================= #}
+  <section class="page page--cover">
+    <div class="cover cover--eod" style="writing-mode:horizontal-tb; text-orientation:mixed; justify-content:center; align-items:center;">
+      <div class="cover__eod">EOD</div>
+    </div>
+  </section>
+
+
+</body>
+</html>
