@@ -1151,6 +1151,15 @@ _KO_BLOCK_DA_SUFFIX = frozenset({
     "다리",  # 다리다(VV, 옷을 다리다)로 오분석 — '다리'는 항상 명사(다리)로만 표시
 })
 
+# 표준어가 아니거나(오타·신조어 표기 등) kiwi 사전에 아예 없어 형태소 분석으로는
+# 품사 판별·원형 복원이 불가능한 키워드를 지정 품사 + 완성된 표시형으로 강제 매핑.
+# {원본 키워드: (강제 품사, 리포트에 표시할 원형)}
+_KO_KEYWORD_FORM_OVERRIDES = {
+    # '낋'은 실사용되지 않는 한글 음절이라 kiwi가 미등록 명사(NNG)로만 인식 —
+    # '끓여오다'의 신조어성 표기이므로 동사로 분류하고 표시형은 '낋여오다'로 고정
+    "낋여": ("verb_adj", "낋여오다"),
+}
+
 _nltk_path_ready = False
 
 def _ensure_nltk_path():
@@ -1383,6 +1392,12 @@ def _normalize_keyword_by_pos(text, pos_type='noun'):
     # 한국어 형용사/동사 강제 목록: kiwi가 후보를 아예 못 내는 경우도 있으므로
     # candidates 유무와 무관하게 최우선으로 확인한다.
     cleaned_text = str(text).strip()
+
+    override = _KO_KEYWORD_FORM_OVERRIDES.get(cleaned_text)
+    if override is not None:
+        override_pos, display_form = override
+        return display_form if pos_type == override_pos else None
+
     if cleaned_text in _KO_FORCE_VERB_ADJ:
         if pos_type == "noun":
             return None
@@ -1481,7 +1496,7 @@ def _normalize_keyword_by_pos(text, pos_type='noun'):
 
     return None
 
-def filter_keywords_by_pos(df, pos_type='noun', exclude_zero_ctr=False, sort_col='avg_ctr', rate_multiplier=100):
+def filter_keywords_by_pos(df, pos_type='noun', exclude_zero_ctr=False, sort_col='avg_ctr', rate_multiplier=100, min_doc_freq=None):
     """
     pos_type: 'noun' (NNG, NNP), 'verb_adj' (VV, VA)
     exclude_zero_ctr: True면 sort_col <= 0 항목 제외
@@ -1491,6 +1506,8 @@ def filter_keywords_by_pos(df, pos_type='noun', exclude_zero_ctr=False, sort_col
     rate_multiplier: 정제된 키워드 병합 후 avg_ctr을 total_clicks/total_impressions로 재계산할 때
                       곱하는 배수. 기본 100(CTR %)이며, 도달 1000당 팔로우 발생 수처럼 다른 배수를
                       쓰려면 지정한다 (예: 1000).
+    min_doc_freq: 지정하면 정제된 키워드 병합 후 doc_freq(등장 콘텐츠 수)가 이 값 미만인
+                  키워드는 제외한다 (예: 2 → 2개 이상 콘텐츠에 등장한 키워드만 포함).
     """
     if df is None or df.empty:
         return None
@@ -1534,6 +1551,12 @@ def filter_keywords_by_pos(df, pos_type='noun', exclude_zero_ctr=False, sort_col
             np.round(filtered_df['total_clicks'] / filtered_df['doc_freq'], 2),
             np.nan
         )
+
+    # min_doc_freq 지정 시 등장 콘텐츠 수(doc_freq)가 기준 미만인 키워드 제외
+    if min_doc_freq is not None and 'doc_freq' in filtered_df.columns:
+        filtered_df = filtered_df[filtered_df['doc_freq'] >= min_doc_freq]
+        if filtered_df.empty:
+            return None
 
     # 입력 정렬 방향(top/bottom)을 최대한 유지
     has_tiebreak = 'total_impressions' in filtered_df.columns and sort_col != 'total_impressions'

@@ -231,11 +231,12 @@ def _bar_h_dataset_rate(title, df):
 
 def _bar_h_dataset_count(title, df):
     """키워드 포함 콘텐츠의 평균 팔로우 발생 수(총 팔로우 발생 / 등장 콘텐츠 수) 차트.
-    바 내부 왼쪽에 평균 수치를 표시한다."""
+    바 내부 왼쪽에 '평균 수치 (등장 횟수)'를 표시한다."""
     if df is None or df.empty:
         return None
     avg_counts = df["avg_follows_per_content"].fillna(0).tolist()
-    bar_labels = [f"{avg:.2f}명" for avg in avg_counts]
+    doc_freqs = df["doc_freq"].fillna(0).tolist()
+    bar_labels = [f"{avg:.2f}명 ({int(round(freq))}회 등장)" for avg, freq in zip(avg_counts, doc_freqs)]
     return {
         "kind": "bar_h",
         "title": title,
@@ -291,25 +292,26 @@ def _build_keyword_datasets(perf_df, min_doc_freq):
         # 도달 1,000당 팔로우 발생 수 기준
         rate_sorted_df = raw_df.sort_values(by=["avg_ctr", "total_impressions"], ascending=[not is_top, False])
 
-        nouns = filter_keywords_by_pos(rate_sorted_df, "noun", exclude_zero_ctr=not is_top, sort_col="avg_ctr", rate_multiplier=1000)
+        nouns = filter_keywords_by_pos(rate_sorted_df, "noun", exclude_zero_ctr=not is_top, sort_col="avg_ctr", rate_multiplier=1000, min_doc_freq=2)
         ds = _bar_h_dataset_rate(f"전체 {suffix.upper()} 10 (명사)", nouns)
         if ds:
             datasets[f"overall_{suffix}_noun"] = ds
 
-        vas = filter_keywords_by_pos(rate_sorted_df, "verb_adj", exclude_zero_ctr=not is_top, sort_col="avg_ctr", rate_multiplier=1000)
+        vas = filter_keywords_by_pos(rate_sorted_df, "verb_adj", exclude_zero_ctr=not is_top, sort_col="avg_ctr", rate_multiplier=1000, min_doc_freq=2)
         ds = _bar_h_dataset_rate(f"전체 {suffix.upper()} 10 (형용사)", vas)
         if ds:
             datasets[f"overall_{suffix}_va"] = ds
 
         # 키워드 포함 콘텐츠의 평균 팔로우 발생 수(총 팔로우 발생 / 등장 콘텐츠 수) 기준 — 표 대신 들어가는 별도 랭킹 차트
+        # 2개 이상 콘텐츠에 등장한 키워드만 포함 (min_doc_freq=2)
         count_sorted_df = raw_df.sort_values(by=["avg_follows_per_content", "total_impressions"], ascending=[not is_top, False])
 
-        nouns_count = filter_keywords_by_pos(count_sorted_df, "noun", exclude_zero_ctr=not is_top, sort_col="avg_follows_per_content")
+        nouns_count = filter_keywords_by_pos(count_sorted_df, "noun", exclude_zero_ctr=not is_top, sort_col="avg_follows_per_content", min_doc_freq=2)
         ds = _bar_h_dataset_count(f"전체 {suffix.upper()} 10 (명사, 평균 발생 수)", nouns_count)
         if ds:
             datasets[f"overall_{suffix}_noun_count"] = ds
 
-        vas_count = filter_keywords_by_pos(count_sorted_df, "verb_adj", exclude_zero_ctr=not is_top, sort_col="avg_follows_per_content")
+        vas_count = filter_keywords_by_pos(count_sorted_df, "verb_adj", exclude_zero_ctr=not is_top, sort_col="avg_follows_per_content", min_doc_freq=2)
         ds = _bar_h_dataset_count(f"전체 {suffix.upper()} 10 (형용사, 평균 발생 수)", vas_count)
         if ds:
             datasets[f"overall_{suffix}_va_count"] = ds
@@ -322,7 +324,8 @@ def _build_keyword_datasets(perf_df, min_doc_freq):
         if dropped:
             print(f"⚠️  명사/형용사·동사 어디로도 분류되지 않아 표에서 제외된 키워드 ({len(dropped)}개): {', '.join(dropped)}")
 
-    strat_df = strategic_performance_from_df(perf_df, min_doc_freq)
+    # 2개 이상 콘텐츠에 등장한 키워드 조합만 포함 (combo_doc_freq >= 2)
+    strat_df = strategic_performance_from_df(perf_df, min_doc_freq=2)
     combo_ds = _build_combo_dataset(strat_df, "전체")
     if combo_ds:
         datasets["overall_keyword_combo_detail"] = combo_ds
@@ -347,12 +350,12 @@ def run():
     start_time = time.time()
 
     config = {
-        "target_id": 22,
-        "csv_path": "data-follow/drr.csv",
+        "target_id": 23,
+        "csv_path": "data-follow/llatrof.csv",
         "brand": "De;part",
         "period_label": "",
         "min_doc_freq": 1,
-        "theme_color": "#1C57AD",
+        "theme_color": "#1A1A1A",
         "output_html": "report_keywords_follow.html",
         "output_pdf_dir": "outputs",
     }
@@ -399,16 +402,19 @@ def run():
         '<span style="white-space:nowrap;">'
         "*도달 1,000당 팔로우 발생 수 = (총 팔로우 발생 / 총 도달) × 1,000"
         "</span>"
+        "<br>"
+        '<span style="white-space:nowrap;">'
+        "*2개 이상 콘텐츠에 등장한 키워드만 포함"
+        "</span>"
     )
 
     overall_rate_val = _weighted_rate(perf_df)
     overall_rate = f"{overall_rate_val:.2f}" if overall_rate_val is not None else "-"
 
-    # min 기준이 1이라 doc_freq(등장 게시물 수) 필터가 사실상 의미가 없으므로
-    # "N개 이상 콘텐츠 등장" 안내 문구는 넣지 않는다.
     combo_note = (
         "*업종 필수 키워드: 동일 업종의 상위 브랜드 10개의 웹사이트에서 자주 사용된 단어"
         "<br>*브랜드 변수 키워드: 필수 키워드 외 콘텐츠에 활용된 단어"
+        "<br>*2개 이상 콘텐츠에 등장한 키워드 조합만 포함"
         f"<br><br>*전체 평균 도달 1,000당 팔로우 발생 수: {overall_rate}"
     )
 
